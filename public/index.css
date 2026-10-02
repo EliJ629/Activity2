@@ -1,0 +1,709 @@
+/* =========================================================
+   index.css  -  Registration app styles (minimalist, MOBILE-FIRST)
+   ---------------------------------------------------------
+   Base rules are for phones; wider screens are added with
+   min-width media queries (section 17).
+
+   1. THEME        -> colors, font, spacing (change these first)
+   2. BASE         -> page background, body font, focus ring
+   3. LAYOUT       -> .app, .card, .card__title
+   4. FIELDS       -> .form-grid, .name-row, .field, .field__input, .field__select
+   5. PASSWORD     -> .field__toggle, .password-rules, .suggester
+   6. MESSAGES     -> .field__error, .field__hint, .field__counter, .banner
+   7. FIELDSETS    -> .fieldset, .address-grid, .phone
+   8. BUTTONS      -> .btn, .link-btn, .icon-btn, .chip
+   9. AUTH PAGES   -> .auth-card, .stack, .otp-input, .form-note
+  10. MENU BAR     -> .nav, .logo, .profile, .hamburger
+  11. HERO         -> .hero (full-image background + dark overlay)
+  12. PAGES        -> .page, .details (Profile, Settings)
+  13. MODAL + TABS -> .modal, .tabs
+  14. TABLE        -> .table, .pager
+  15. HOLIDAYS     -> .cal, .badge, .holiday-list
+  16. DEV INBOX    -> .dev
+  17. RESPONSIVE   -> tablet, laptop, ultra-wide, reduced motion
+   ========================================================= */
+
+/* 1. THEME ------------------------------------------------ */
+:root {
+  --color-bg: #ffffff;
+  --color-text: #111111;
+  --color-muted: #6b6b6b;
+  --color-faint: #9a9a9a;      /* placeholders, disabled */
+  --color-line: #e6e6e6;       /* input underlines + dividers */
+  --color-focus: #111111;      /* underline when a field is active */
+  --color-error: #c2410c;
+  --color-success: #15803d;
+  --color-info: #1d4ed8;
+  --color-surface: #f6f6f6;
+
+  /* holiday types */
+  --regular: #2563eb;  --regular-bg: #dbeafe;  --regular-fg: #1e3a8a;
+  --special: #d97706;  --special-bg: #fef3c7;  --special-fg: #78350f;
+  --islamic: #059669;  --islamic-bg: #d1fae5;  --islamic-fg: #064e3b;
+
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --gap: 24px;                 /* space between fields */
+  --radius: 14px;
+  --hero-image: url("/assets/hero.svg");   /* replace with your own photo if you like */
+  /* semi-transparent dark overlay: keeps the white text readable on any part of the image */
+  --hero-overlay: linear-gradient(180deg, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.64) 100%);
+  --content-w: 1240px;         /* width of the menu bar; the hero text lines up with it */
+  --edge: 20px;                /* minimum side padding */
+}
+
+/* 2. BASE ------------------------------------------------- */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 15px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+body.no-scroll { overflow: hidden; }
+
+a { color: inherit; text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--color-info); outline-offset: 2px; }
+p { margin: 0 0 12px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+.muted { color: var(--color-muted); }
+.splash { padding: 72px 20px; text-align: center; color: var(--color-muted); }
+
+/* 3. LAYOUT ----------------------------------------------- */
+.app {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 40px 16px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 64px;
+}
+.app--narrow { max-width: 480px; }
+
+.card { padding: 0; }
+
+.card__title {
+  margin: 0 0 32px;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* 4. FIELDS ----------------------------------------------- */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap);
+  margin-bottom: 32px;
+}
+
+.name-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field--full { grid-column: 1 / -1; }
+
+.field__label {
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-muted);
+}
+
+.field__control { position: relative; }
+
+/* Inputs and dropdowns: no box, just a thin underline */
+.field__input,
+.field__select {
+  width: 100%;
+  padding: 10px 0;
+  font: inherit;
+  font-size: 1rem;               /* 16px stops iOS from zooming into fields */
+  color: inherit;
+  background-color: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-line);
+  border-radius: 0;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.field__input::placeholder { color: var(--color-faint); }
+
+.field__input:focus,
+.field__select:focus { border-bottom-color: var(--color-focus); }
+
+.field__input--invalid { border-bottom-color: var(--color-error); }
+.field__select[aria-invalid="true"] { border-bottom-color: var(--color-error); }
+
+/* Dropdowns: replace the browser arrow with a thin chevron */
+.field__select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 20px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b6b6b' stroke-width='1.2'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+}
+
+.field__select:disabled {
+  color: var(--color-faint);
+  cursor: not-allowed;
+}
+.field__input:disabled { color: var(--color-faint); cursor: not-allowed; }
+
+.field__select--loading { cursor: progress; }
+
+/* 5. PASSWORD --------------------------------------------- */
+.field__input--password { padding-right: 48px; }   /* room for Show/Hide */
+
+.field__toggle {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 8px 0 8px 8px;
+  font: inherit;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.field__toggle:hover,
+.field__toggle[aria-pressed="true"] { color: var(--color-text); }
+
+.password-rules {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 0.75rem;
+}
+.password-rules__item.is-unmet { color: var(--color-muted); }
+.password-rules__item.is-met { color: var(--color-success); }
+.password-rules__item.is-met::before { content: "\2713  "; }
+
+.suggester {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 12px;
+  background: var(--color-surface);
+  border-radius: 10px;
+}
+.suggester__value { font-size: 1rem; letter-spacing: 0.04em; word-break: break-all; user-select: all; }
+.suggester__actions { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+
+/* 6. MESSAGES --------------------------------------------- */
+.field__error {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-error);
+}
+
+.field__hint {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+.field__hint.is-valid { color: var(--color-success); }
+
+.field__counter {
+  align-self: flex-end;
+  font-size: 0.7rem;
+  color: var(--color-faint);
+}
+.field__counter.is-full { color: var(--color-error); }
+
+.banner {
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  font-size: 0.875rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+.banner--error { background: #fff1ec; border-color: #fdc9b5; color: #7c2d12; }
+.banner--success { background: #ecfdf3; border-color: #b7ebc9; color: #14532d; }
+.banner--info { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
+
+/* 7. FIELDSETS (address) + PHONE -------------------------- */
+.fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.fieldset__legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-muted);
+}
+
+.address-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap);
+  margin-top: 8px;
+}
+
+.phone {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--color-line);
+  transition: border-color 0.15s;
+}
+.phone:focus-within { border-bottom-color: var(--color-focus); }
+.phone--invalid { border-bottom-color: var(--color-error); }
+.phone__prefix {
+  display: flex;
+  align-items: center;
+  padding-right: 10px;
+  margin-right: 10px;
+  border-right: 1px solid var(--color-line);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.phone__input { border-bottom: 0; flex: 1; min-width: 0; }
+
+/* 8. BUTTONS ---------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;              /* comfortable touch target */
+  padding: 10px 22px;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn--block { display: flex; width: 100%; margin-top: 8px; }
+.btn--primary { background: var(--color-text); color: #fff; }
+.btn--primary:hover:not(:disabled) { background: #333; }
+.btn--secondary { background: transparent; color: var(--color-text); border-color: #bdbdbd; }
+.btn--secondary:hover:not(:disabled) { border-color: var(--color-text); }
+.btn--light { background: #fff; color: #111; }
+.btn--light:hover:not(:disabled) { background: #e9e9e9; }
+.btn--ghost { background: rgba(255, 255, 255, 0.08); color: #fff; border-color: rgba(255, 255, 255, 0.6); }
+.btn--ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); }
+.btn--small { min-height: 36px; padding: 6px 16px; font-size: 0.85rem; }
+
+.link-btn {
+  align-self: flex-start;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--color-text);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link-btn:hover { color: var(--color-info); }
+
+.icon-btn {
+  width: 40px; height: 40px;
+  font-size: 1.5rem; line-height: 1;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.icon-btn:hover { background: #e9e9e9; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--color-text);
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--color-text); }
+.chip.is-active { background: var(--color-text); border-color: var(--color-text); color: #fff; }
+.chip__count { opacity: 0.7; font-variant-numeric: tabular-nums; }
+
+/* 9. AUTH PAGES ------------------------------------------- */
+.auth-card { padding-top: 24px; }
+.stack { display: flex; flex-direction: column; gap: var(--gap); margin-bottom: 24px; }
+.form-note { margin: 20px 0 0; font-size: 0.8rem; color: var(--color-muted); }
+.otp-input { font-size: 1.75rem; letter-spacing: 0.5em; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* 10. MENU BAR (floating, sticky while scrolling) --------- */
+.nav {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 50;
+  padding-top: env(safe-area-inset-top);
+}
+.nav__bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: var(--content-w);
+  margin: 0 auto;
+  padding: 8px 10px 8px 14px;
+  color: #fff;
+  background: rgba(17, 17, 17, 0.82);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+.logo { display: inline-flex; align-items: center; gap: 8px; color: #fff; text-decoration: none; font-weight: 600; letter-spacing: -0.01em; }
+.logo__mark { color: #fff; flex: none; }
+.logo__text { white-space: nowrap; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
+
+/* On phones the links live in a drop-down panel opened by the hamburger */
+.nav__links {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  flex-direction: column;
+  padding: 8px;
+  background: rgba(17, 17, 17, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+}
+.nav__links.is-open { display: flex; }
+
+.nav__link {
+  display: block;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: left;
+  text-decoration: none;
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.nav__link:hover, .nav__link.is-active { color: #fff; background: rgba(255, 255, 255, 0.12); }
+.nav__mobile-account { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, 0.15); }
+.nav__email { display: block; padding: 6px 14px; font-size: 0.75rem; color: rgba(255, 255, 255, 0.6); overflow: hidden; text-overflow: ellipsis; }
+
+.profile { position: relative; margin-left: auto; }
+.profile__button {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px 4px 4px;
+  font: inherit; color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  border: 0; border-radius: 999px; cursor: pointer;
+}
+.profile__button:hover { background: rgba(255, 255, 255, 0.2); }
+.avatar {
+  display: inline-grid; place-items: center;
+  width: 32px; height: 32px;
+  font-size: 0.75rem; font-weight: 700;
+  color: #111; background: #fff; border-radius: 50%;
+}
+.profile__name { display: none; font-size: 0.875rem; }
+.profile__caret { font-size: 0.7rem; opacity: 0.7; }
+.profile__menu {
+  position: absolute; right: 0; top: calc(100% + 10px);
+  min-width: 220px; padding: 6px;
+  color: var(--color-text); background: #fff;
+  border-radius: 12px; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3);
+}
+.profile__who { display: flex; flex-direction: column; padding: 10px 12px; border-bottom: 1px solid var(--color-line); margin-bottom: 4px; font-size: 0.85rem; }
+.profile__who span { color: var(--color-muted); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; }
+.profile__item {
+  display: block; width: 100%; padding: 10px 12px;
+  font: inherit; font-size: 0.9rem; color: inherit; text-align: left; text-decoration: none;
+  background: none; border: 0; border-radius: 8px; cursor: pointer;
+}
+.profile__item:hover { background: var(--color-surface); }
+.profile__item--danger { color: #b91c1c; }
+
+.hamburger {
+  display: inline-flex; flex-direction: column; justify-content: center; gap: 4px;
+  width: 44px; height: 44px; padding: 0 12px;
+  background: none; border: 0; border-radius: 10px; cursor: pointer;
+}
+.hamburger span { display: block; height: 2px; background: #fff; border-radius: 2px; transition: transform 0.2s, opacity 0.2s; }
+.hamburger[aria-expanded="true"] span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.hamburger[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
+.hamburger[aria-expanded="true"] span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+/* 11. HERO ------------------------------------------------ */
+/* Full-image background + semi-transparent dark overlay so the white text is
+   readable at every size. The image is a vector (SVG), so it stays sharp on any screen. */
+.hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 100vh;
+  min-height: 100svh;
+  padding: 110px max(var(--edge), calc((100vw - var(--content-w)) / 2 + 14px)) 56px;
+  color: #fff;
+  background:
+    var(--hero-overlay),
+    var(--hero-image) center / cover no-repeat,
+    #0b1220;
+}
+.hero__content { width: 100%; max-width: 680px; }
+.hero__eyebrow { margin: 0 0 8px; font-size: 0.8rem; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255, 255, 255, 0.8); }
+.hero__title { margin: 0 0 16px; font-size: clamp(2.2rem, 9vw, 4.2rem); line-height: 1.05; letter-spacing: -0.03em; }
+.hero__lead { margin: 0 0 28px; max-width: 520px; font-size: 1.05rem; color: rgba(255, 255, 255, 0.88); }
+.hero__actions { display: flex; flex-direction: column; gap: 12px; }
+
+/* 12. PAGES (Profile / Settings) -------------------------- */
+.page { min-height: 100vh; padding: 96px 16px 56px; }
+.page__inner { max-width: 720px; margin: 0 auto; }
+.page__subtitle { margin: 0 0 12px; font-size: 0.72rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-muted); }
+.details { margin: 0 0 32px; border-top: 1px solid var(--color-line); }
+.details__row { display: flex; flex-direction: column; gap: 2px; padding: 14px 0; border-bottom: 1px solid var(--color-line); }
+.details dt { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-muted); }
+.details dd { margin: 0; overflow-wrap: anywhere; }
+
+/* 13. MODAL + TABS ---------------------------------------- */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(0, 0, 0, 0.62);
+  animation: fade 0.15s ease-out;
+}
+.modal {
+  position: relative;
+  width: 100%; max-height: 92vh; max-height: 92dvh;
+  overflow-y: auto;
+  padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  outline: none;
+  animation: rise 0.2s ease-out;
+}
+.modal__close {
+  position: absolute; top: 10px; right: 10px;
+  width: 40px; height: 40px;
+  font-size: 1.6rem; line-height: 1; color: var(--color-muted);
+  background: none; border: 0; border-radius: 50%; cursor: pointer;
+}
+.modal__close:hover { background: var(--color-surface); color: var(--color-text); }
+.modal__body { padding-top: 24px; }
+
+.tabs { display: flex; gap: 4px; margin-right: 44px; border-bottom: 1px solid var(--color-line); overflow-x: auto; }
+.tabs__tab {
+  flex: none;
+  padding: 12px 14px;
+  font: inherit; font-size: 0.9rem; font-weight: 500;
+  color: var(--color-muted);
+  background: none; border: 0; border-bottom: 2px solid transparent;
+  cursor: pointer; white-space: nowrap;
+}
+.tabs__tab:hover { color: var(--color-text); }
+.tabs__tab.is-active { color: var(--color-text); border-bottom-color: var(--color-text); }
+
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* 14. TABLE (stacked cards on phones, real table from 700px) */
+.table-wrap { margin: 16px 0; }
+.table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.table tr { display: block; padding: 12px 0; border-bottom: 1px solid var(--color-line); }
+.table td { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; text-align: right; }
+.table td::before { content: attr(data-label); flex: none; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-muted); text-align: left; padding-top: 2px; }
+.table tr.is-you { background: var(--color-surface); }
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.85rem; color: var(--color-muted); }
+
+/* 15. HOLIDAYS -------------------------------------------- */
+.holidays__header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.holidays__header .card__title { margin: 0; }
+.holidays__year-pick { display: flex; flex-direction: column; gap: 2px; }
+.holidays__year { width: auto; min-width: 88px; }
+
+.legend, .scope { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.scope { margin-top: 20px; }
+
+.cal-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.cal-nav__month { flex: 1; text-align: center; font-weight: 600; }
+
+.cal__head, .cal__body { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.cal__head span { padding: 6px 0; text-align: center; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-muted); }
+.cal__body { border-top: 1px solid var(--color-line); border-left: 1px solid var(--color-line); }
+.cal__cell {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-height: 46px; padding: 4px 2px;
+  border-right: 1px solid var(--color-line); border-bottom: 1px solid var(--color-line);
+  font-size: 0.8rem; overflow: hidden;
+}
+.cal__cell--empty { background: var(--color-surface); }
+.cal__cell.is-today .cal__num { background: var(--color-text); color: #fff; border-radius: 50%; }
+.cal__num { display: inline-grid; place-items: center; min-width: 24px; height: 24px; font-variant-numeric: tabular-nums; }
+.cal__cell.has-holiday { background: #fafafa; font-weight: 600; }
+.cal__dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.cal__dot--regular { background: var(--regular); }
+.cal__dot--special { background: var(--special); }
+.cal__dot--islamic { background: var(--islamic); }
+.cal__label { display: none; }
+
+.badge {
+  display: inline-block; padding: 2px 10px;
+  font-size: 0.72rem; font-weight: 600; line-height: 1.6; white-space: nowrap;
+  border-radius: 999px;
+}
+.badge--regular { background: var(--regular-bg); color: var(--regular-fg); }
+.badge--special { background: var(--special-bg); color: var(--special-fg); }
+.badge--islamic { background: var(--islamic-bg); color: var(--islamic-fg); }
+.badge--ok { background: #dcfce7; color: #14532d; }
+.badge--note { background: #f0f0f0; color: #404040; margin-left: 6px; }
+
+.holiday-list { list-style: none; margin: 0; padding: 0; }
+.holiday-item {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 14px 0 14px 12px;
+  border-bottom: 1px solid var(--color-line);
+  border-left: 4px solid var(--color-line);
+}
+.holiday-item:first-child { border-top: 1px solid var(--color-line); }
+.holiday-item--regular { border-left-color: var(--regular); }
+.holiday-item--special { border-left-color: var(--special); }
+.holiday-item--islamic { border-left-color: var(--islamic); }
+.holiday-item__text { font-size: 0.95rem; }
+.holiday-item__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.holiday-item__weekday { font-size: 0.8rem; color: var(--color-muted); }
+
+.holidays__status { margin: 0; color: var(--color-muted); }
+.holidays__source { margin: 16px 0 0; font-size: 0.72rem; color: var(--color-muted); }
+
+/* 16. DEV INBOX (development only) ------------------------ */
+.dev { position: fixed; left: 10px; bottom: 10px; z-index: 200; max-width: calc(100vw - 20px); }
+.dev__toggle {
+  padding: 8px 14px; font: inherit; font-size: 0.8rem; font-weight: 600;
+  color: #fff; background: #7c2d12; border: 0; border-radius: 999px; cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+.dev__panel {
+  position: absolute; left: 0; bottom: calc(100% + 8px);
+  width: min(440px, calc(100vw - 20px)); max-height: 60vh; overflow: auto;
+  padding: 14px; background: #fff; border: 1px solid #d6d6d6; border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.3);
+}
+.dev__note { margin: 0 0 10px; font-size: 0.75rem; color: #7c2d12; }
+.dev__list { list-style: none; margin: 0 0 8px; padding: 0; }
+.dev__item { padding: 10px 0; border-top: 1px solid var(--color-line); font-size: 0.8rem; }
+.dev__head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.dev__subject { display: block; margin-bottom: 4px; }
+.dev__otp { font-size: 1.6rem; font-weight: 700; letter-spacing: 0.3em; margin: 4px 0; }
+.dev__body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 0.78rem; color: #333; }
+
+/* 17. RESPONSIVE (mobile-first: each query ADDS to the phone layout) */
+@media (min-width: 600px) {
+  .app { padding: 72px 20px 96px; gap: 88px; }
+  .card__title { font-size: 1.75rem; margin-bottom: 40px; }
+  .form-grid { grid-template-columns: repeat(2, 1fr); gap: 28px 24px; }
+  .name-row { grid-template-columns: 2fr 1fr 2fr; gap: 24px; }
+  .address-grid { grid-template-columns: repeat(2, 1fr); gap: 28px 24px; }
+  :root { --edge: 32px; }
+  .hero__actions { flex-direction: row; }
+  .page { padding-inline: 24px; }
+  .details__row { flex-direction: row; gap: 24px; }
+  .details dt { width: 160px; flex: none; padding-top: 3px; }
+  .holiday-item { flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; }
+}
+
+@media (min-width: 700px) {
+  .modal-backdrop { align-items: center; padding: 24px; }
+  .modal { width: min(920px, 100%); max-height: 88vh; padding: 20px 28px 28px; border-radius: 20px; }
+  .table thead { position: static; width: auto; height: auto; clip: auto; overflow: visible; }
+  .table tr { display: table-row; padding: 0; }
+  .table th { padding: 10px 12px; text-align: left; font-size: 0.72rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-muted); border-bottom: 1px solid var(--color-line); }
+  .table td { display: table-cell; padding: 12px; text-align: left; border-bottom: 1px solid var(--color-line); vertical-align: middle; }
+  .table td::before { content: none; }
+  .cal__cell { min-height: 84px; align-items: stretch; padding: 6px; }
+  .cal__cell .cal__dot { display: none; }
+  .cal__label { display: block; margin-top: 4px; padding: 2px 6px; font-size: 0.68rem; font-weight: 600; line-height: 1.25; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .cal__label--regular { background: var(--regular-bg); color: var(--regular-fg); }
+  .cal__label--special { background: var(--special-bg); color: var(--special-fg); }
+  .cal__label--islamic { background: var(--islamic-bg); color: var(--islamic-fg); }
+  .cal__cell .cal__num { align-self: flex-start; }
+}
+
+/* Tablets and up: the links sit in the bar, the hamburger disappears */
+@media (min-width: 900px) {
+  .nav__bar { padding-right: 12px; }
+  .hamburger, .nav__mobile-account { display: none; }
+  .nav__links {
+    position: static; display: flex; flex-direction: row; align-items: center; gap: 2px;
+    margin-left: 16px; padding: 0; background: none; border: 0; box-shadow: none;
+  }
+  .nav__link { padding: 8px 14px; }
+  .profile__name { display: inline; }
+  .logo__text { max-width: none; }
+  :root {
+    --edge: 48px;
+    /* the text sits on the left, so the overlay is stronger there and lets the sunset show on the right */
+    --hero-overlay: linear-gradient(90deg, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.5) 45%, rgba(0, 0, 0, 0.2) 100%), linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.35) 100%);
+  }
+}
+/* Ultra-wide monitors: keep line lengths readable and scale the hero up */
+@media (min-width: 1600px) {
+  body { font-size: 16px; }
+  :root { --content-w: 1480px; }
+  .nav__bar { max-width: var(--content-w); }
+  .hero__content { max-width: 820px; }
+  .hero__lead { font-size: 1.25rem; max-width: 640px; }
+  .page__inner { max-width: 860px; }
+  .modal { width: min(1100px, 100%); }
+}
+@media (min-width: 2200px) {
+  body { font-size: 18px; }
+  :root { --content-w: 1800px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

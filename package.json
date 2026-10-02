@@ -1,0 +1,35 @@
+{
+  "name": "registration-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "argon2": "^0.45.1",
+    "countries-and-timezones": "^3.10.0",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "libphonenumber-js": "^1.13.14",
+    "nodemailer": "^10.0.13",
+    "pg": "^8.23.1",
+    "postal-codes-js": "^2.5.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "selfsigned": "^5.5.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "node scripts/dev.js",
+    "dev:https": "node scripts/dev.js --https",
+    "build": "node scripts/build.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "test:e2e": "python3 test/e2e.py"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "description": "Registration, email + SMS verification, login lockout and Philippine holidays"
+}
