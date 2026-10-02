@@ -25,7 +25,10 @@ export function CheckEmailPage() {
     const tick = async () => {
       try {
         const r = await api(`/registration-status?email=${encodeURIComponent(email)}`);
-        if (!cancelled && r.verified) { navigate("/login?verified=1", { replace: true }); return; }
+        // Move on to the OTP step, same as the device that actually clicked the
+        // link - never straight to sign-in, since mobile verification still
+        // isn't done yet and jumping ahead would be misleading.
+        if (!cancelled && r.emailVerified) { navigate("/verify-mobile", { replace: true }); return; }
       } catch { /* transient network hiccup: just try again next tick */ }
       if (!cancelled) timer = setTimeout(tick, 4000);
     };
@@ -142,14 +145,45 @@ export function VerifyMobilePage() {
     startLock(s.lockedForSeconds || 0);
   };
 
+  // Keeps checking, not just once on load - so this device notices and moves
+  // on once mobile verification completes, even if it happens somewhere else
+  // (e.g. the OTP was actually entered on the device that clicked the email
+  // link, while this one is just sitting here waiting). If this device loses
+  // its session partway through (cookie expires), it falls through to the
+  // same no-session polling the other device would use.
   useEffect(() => {
-    api("/otp/status")
-      .then((s) => {
+    let cancelled = false;
+    let timer;
+
+    const pollNoSession = async () => {
+      const email = sessionStorage.getItem("pendingEmail") || "";
+      if (email) {
+        try {
+          const r = await api(`/registration-status?email=${encodeURIComponent(email)}`);
+          if (!cancelled && r.mobileVerified) { navigate("/login?verified=1", { replace: true }); return; }
+        } catch { /* transient network hiccup: just try again next tick */ }
+      }
+      if (!cancelled) timer = setTimeout(pollNoSession, 4000);
+    };
+
+    const pollReady = async () => {
+      try {
+        const s = await api("/otp/status");
+        if (cancelled) return;
         if (s.verified) { navigate("/login?verified=1", { replace: true }); return; }
         apply(s);
         setPhase("ready");
-      })
-      .catch((err) => setPhase(err.status === 401 ? "noSession" : "ready"));
+        timer = setTimeout(pollReady, 4000);
+      } catch (err) {
+        if (cancelled) return;
+        setPhase(err.status === 401 ? "noSession" : "ready");
+        if (err.status === 401) pollNoSession();
+        else timer = setTimeout(pollReady, 4000);
+      }
+    };
+
+    pollReady();
+    return () => { cancelled = true; clearTimeout(timer); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = async () => {
@@ -185,7 +219,8 @@ export function VerifyMobilePage() {
     return (
       <section className="card auth-card">
         <h1 className="card__title">Verify your mobile</h1>
-        <p>Your verification session ended. <Link to="/login">Sign in</Link> to continue.</p>
+        <p>To enter the code on this device, <Link to="/login">sign in</Link> with your email and password first.</p>
+        <p className="muted" role="status">If you're entering the code on another device instead, this page will move on by itself once it's done.</p>
       </section>
     );
   }
