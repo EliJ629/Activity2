@@ -290,7 +290,8 @@ export async function createApp({ config, db, mailer, sms, outbox }) {
     if (!country && !errors.countryCode) errors.countryCode = "Select a valid country.";
     if (Object.keys(errors).length) return res.status(422).json({ code: "VALIDATION", message: "Please fix the highlighted fields.", errors });
 
-    if (await q.userByEmail.get(payload.email)) {
+    const existing = await q.userByEmail.get(payload.email);
+    if (existing && existing.email_verified_at) {
       return res.status(409).json({ code: "EMAIL_TAKEN", message: "An account with this email already exists.", errors: { email: "An account with this email already exists." } });
     }
 
@@ -302,6 +303,12 @@ export async function createApp({ config, db, mailer, sms, outbox }) {
 
     try {
       await transaction(db, async (tx) => {
+        // Nobody has proven ownership of this email yet if the earlier attempt was
+        // never verified (e.g. the page reloaded before the email arrived) - replace
+        // it with this fresh attempt instead of permanently blocking the real owner.
+        // The email_verified_at IS NULL guard means this is a safe no-op if the old
+        // row somehow got verified between the check above and this transaction.
+        if (existing) await tx.prepare("DELETE FROM users WHERE id = ? AND email_verified_at IS NULL").run(existing.id);
         await tx.prepare(INSERT_USER_SQL)
           .run({ id, first_name: payload.firstName, last_name: payload.lastName, middle_initial: payload.middleInitial || null, birthday, password_hash: passwordHash, email: payload.email, mobile_number: mobile, now });
         await tx.prepare(INSERT_ADDRESS_SQL)

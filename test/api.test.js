@@ -45,7 +45,7 @@ test("registration validates every rule on the server", async () => {
   await s.close();
 });
 
-test("register -> password is stored as Argon2id, duplicate email is refused", async () => {
+test("register -> password is stored as Argon2id; an unverified duplicate is replaced, a verified one is refused", async () => {
   const s = await startServer();
   const c = client(s.base);
   const p = goodPayload();
@@ -59,13 +59,27 @@ test("register -> password is stored as Argon2id, duplicate email is refused", a
   assert.equal(row.mobile_verified, false);
   const addr = await s.db.prepare("SELECT * FROM addresses WHERE user_id = ?").get(row.id);
   assert.equal(addr.country, "Philippines");
-  const dup = await c.post("/api/register", { ...p, email: p.email.toUpperCase() });
-  assert.equal(dup.status, 409);
   // the email follows section 2b
   const mail = s.outbox.list()[0];
   assert.equal(mail.subject, `Action Required: Verify your email address for ${s.config.appName}`);
   assert.match(mail.body, /^Dear Juan,/);
   assert.match(mail.body, /expire in 24 hours/);
+
+  // Registering again before verifying replaces the abandoned attempt (e.g. a
+  // reloaded page after the first email never arrived) - nobody has proven
+  // ownership of the email yet, so this must succeed, not 409.
+  const retry = await c.post("/api/register", { ...p, email: p.email.toUpperCase(), firstName: "Juana" });
+  assert.equal(retry.status, 201, JSON.stringify(retry.data));
+  const rows = await s.db.prepare("SELECT * FROM users WHERE email = ?").all(p.email);
+  assert.equal(rows.length, 1); // the old row was replaced, not duplicated
+  assert.equal(rows[0].first_name, "Juana");
+  assert.notEqual(rows[0].id, row.id);
+
+  // Once verified, the email is genuinely taken and a duplicate is refused.
+  const token = new URL(s.outbox.list()[0].body.match(/https?:\/\/\S+/)[0]).searchParams.get("token"); // [0] = newest (outbox prepends)
+  assert.equal((await c.post("/api/verify-email", { token })).status, 200);
+  const dup = await c.post("/api/register", goodPayload({ email: p.email }));
+  assert.equal(dup.status, 409);
   await s.close();
 });
 
