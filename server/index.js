@@ -8,6 +8,15 @@ import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
 import https from "node:https";
+import dns from "node:dns";
+
+// Some hosts (Render included) route IPv4 outbound traffic fine but don't
+// actually have working IPv6 egress, even though Node's DNS lookup happily
+// returns an IPv6 address first for hosts like Gmail's SMTP servers that
+// publish both. That mismatch shows up as ENETUNREACH to an IPv6 address.
+// Preferring IPv4 first avoids it, for every outbound connection this
+// process makes (SMTP, the SMS providers' APIs, and the Postgres connection).
+dns.setDefaultResultOrder("ipv4first");
 import { loadConfig, ROOT } from "./config.js";
 import { openDb } from "./db.js";
 import { createOutbox } from "./outbox.js";
