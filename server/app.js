@@ -257,6 +257,17 @@ export async function createApp({ config, db, mailer, sms, outbox }) {
     });
   });
 
+  // Lets the device that's waiting on "Check your email" notice, without a
+  // manual reload, once the link has been clicked - possibly on a different
+  // device. Deliberately returns the same { verified: false } whether the
+  // email doesn't exist or just isn't verified yet, so this can't be used to
+  // find out which emails are registered.
+  app.get("/api/registration-status", async (req, res) => {
+    const email = normalizeEmail(str(req.query?.email));
+    const user = email ? await q.userByEmail.get(email) : null;
+    res.json({ verified: Boolean(user?.email_verified_at) });
+  });
+
   if (outbox.enabled) {
     const loopback = (ip) => ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(ip);
     app.get("/api/dev/outbox", (req, res) => (loopback(req.ip) ? res.json({ items: outbox.list() }) : res.status(404).end()));

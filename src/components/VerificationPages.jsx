@@ -16,6 +16,23 @@ export function CheckEmailPage() {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // If the link gets clicked on a different device (e.g. opening the email on
+  // a phone), this device is otherwise just sitting here with no way to know.
+  // Poll quietly in the background and move on once it's verified.
+  useEffect(() => {
+    if (!email) return undefined;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await api(`/registration-status?email=${encodeURIComponent(email)}`);
+        if (!cancelled && r.verified) { navigate("/login?verified=1", { replace: true }); return; }
+      } catch { /* transient network hiccup: just try again next tick */ }
+      if (!cancelled) timer = setTimeout(tick, 4000);
+    };
+    let timer = setTimeout(tick, 4000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [email]);
+
   if (!email) {
     return (
       <section className="card auth-card">
