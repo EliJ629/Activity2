@@ -63,8 +63,8 @@ const outbox = createOutbox(config.devOutbox);
 const app = await createApp({ config, db, mailer: createMailer(config, outbox), sms: createSms(config, outbox), outbox });
 
 console.log(config.mailConfigured
-  ? `Email: sending via SMTP (${config.smtp.url ? "SMTP_URL" : config.smtp.host}).`
-  : "Email: NOT configured (no SMTP_URL/SMTP_HOST in .env) - verification links will only appear in the Dev Inbox, not in real inboxes.");
+  ? `Email: sending via ${config.mailProvider === "Brevo" ? "Brevo" : `SMTP (${config.mailProvider})`}.`
+  : "Email: NOT configured (no BREVO_API_KEY+BREVO_SENDER_EMAIL or SMTP_URL/SMTP_HOST in .env) - verification links will only appear in the Dev Inbox, not in real inboxes.");
 console.log(config.smsConfigured
   ? `SMS: sending via ${config.smsProvider}.`
   : "SMS: NOT configured (no SEMAPHORE_API_KEY or TWILIO_* vars in .env) - OTP codes will only appear in the Dev Inbox, not as real text messages.");

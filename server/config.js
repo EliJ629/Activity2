@@ -74,6 +74,19 @@ export function loadConfig(overrides = {}) {
     sessionTtlMs: num("SESSION_HOURS", 8) * 3600 * 1000,
 
     // Delivery
+    // Brevo (brevo.com, ex-Sendinblue): sends email over HTTPS, not SMTP.
+    // Preferred over SMTP when both are set, since many hosts (Render's free
+    // tier included) block outbound SMTP ports 25/465/587 entirely - no SMTP
+    // configuration can work around that, only a different transport can.
+    // Chosen over Resend specifically because Brevo's free tier only needs a
+    // single verified sender address to send to any recipient; Resend's free
+    // tier requires verifying an owned domain before it'll send to anyone
+    // other than the account holder, which doesn't fit this app at all.
+    brevo: {
+      apiKey: env.BREVO_API_KEY || "",
+      senderEmail: env.BREVO_SENDER_EMAIL || "",
+      senderName: env.BREVO_SENDER_NAME || "",
+    },
     smtp: {
       url: env.SMTP_URL || "",
       host: env.SMTP_HOST || "",
@@ -112,7 +125,10 @@ export function loadConfig(overrides = {}) {
     cfg[key] = value && typeof value === "object" && !Array.isArray(value) ? { ...cfg[key], ...value } : value;
   }
 
-  cfg.mailConfigured = Boolean(cfg.smtp.url || cfg.smtp.host);
+  cfg.brevoConfigured = Boolean(cfg.brevo.apiKey && cfg.brevo.senderEmail);
+  cfg.smtpConfigured = Boolean(cfg.smtp.url || cfg.smtp.host);
+  cfg.mailConfigured = cfg.brevoConfigured || cfg.smtpConfigured;
+  cfg.mailProvider = cfg.brevoConfigured ? "Brevo" : cfg.smtpConfigured ? (cfg.smtp.url ? "SMTP_URL" : cfg.smtp.host) : "";
   cfg.semaphoreConfigured = Boolean(cfg.semaphore.apiKey);
   cfg.twilioConfigured = Boolean(cfg.twilio.accountSid && cfg.twilio.authToken && (cfg.twilio.from || cfg.twilio.messagingServiceSid));
   cfg.textbeeConfigured = Boolean(cfg.textbee.apiKey && cfg.textbee.deviceId);
@@ -135,7 +151,7 @@ export function loadConfig(overrides = {}) {
     if (!cfg.tlsConfigured && !cfg.trustProxy) problems.push("Production requires HTTPS: set TLS_KEY_FILE + TLS_CERT_FILE, or TRUST_PROXY when a reverse proxy terminates TLS 1.3.");
     if (!cfg.baseUrl.startsWith("https://")) problems.push("BASE_URL must start with https:// in production.");
     if (!cfg.databaseUrl) problems.push("Configure DATABASE_URL (a PostgreSQL connection string, e.g. from Neon).");
-    if (!cfg.mailConfigured) problems.push("Configure SMTP_URL (or SMTP_HOST) so verification emails can be sent.");
+    if (!cfg.mailConfigured) problems.push("Configure BREVO_API_KEY+BREVO_SENDER_EMAIL (or SMTP_URL / SMTP_HOST) so verification emails can be sent.");
     if (!cfg.smsConfigured) problems.push("Configure TEXTBEE_API_KEY+TEXTBEE_DEVICE_ID (or SEMAPHORE_API_KEY, or the TWILIO_* variables) so OTP text messages can be sent.");
     if (problems.length) throw new Error("Cannot start in production:\n - " + problems.join("\n - "));
   }
