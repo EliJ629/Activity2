@@ -3,6 +3,10 @@ import nodemailer from "nodemailer";
 // Sends through SMTP when configured; otherwise (development only) the message
 // goes to the dev outbox and the console.
 export function createMailer(config, outbox) {
+  // IPv6 connectivity (the real fix for ENETUNREACH to a Gmail IPv6 address
+  // on hosts like Render) is handled once, globally, in server/index.js -
+  // nodemailer doesn't read a per-transport option for this, it resolves
+  // both address families itself and picks one at random.
   let transporter = null;
   if (config.smtp.url) transporter = nodemailer.createTransport(config.smtp.url);
   else if (config.smtp.host) {

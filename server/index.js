@@ -9,20 +9,34 @@ import path from "node:path";
 import http from "node:http";
 import https from "node:https";
 import dns from "node:dns";
-
-// Some hosts (Render included) route IPv4 outbound traffic fine but don't
-// actually have working IPv6 egress, even though Node's DNS lookup happily
-// returns an IPv6 address first for hosts like Gmail's SMTP servers that
-// publish both. That mismatch shows up as ENETUNREACH to an IPv6 address.
-// Preferring IPv4 first avoids it, for every outbound connection this
-// process makes (SMTP, the SMS providers' APIs, and the Postgres connection).
-dns.setDefaultResultOrder("ipv4first");
 import { loadConfig, ROOT } from "./config.js";
 import { openDb } from "./db.js";
 import { createOutbox } from "./outbox.js";
 import { createMailer } from "./mail.js";
 import { createSms } from "./sms.js";
 import { createApp } from "./app.js";
+
+// Some hosts (Render included) assign a local-looking IPv6 interface to the
+// container even though outbound IPv6 traffic never actually routes anywhere.
+// dns.setDefaultResultOrder("ipv4first") only changes the order dns.lookup()
+// returns results in - it does nothing for libraries that resolve IPv4 and
+// IPv6 separately and pick between them themselves, which is exactly what
+// nodemailer does: it resolves both, then picks one address AT RANDOM. On a
+// host with a local IPv6 interface, that is a real coin flip between an
+// address that works and one that fails with ENETUNREACH - confirmed by
+// tracing nodemailer's own resolver directly, not guessed at. The fix that
+// actually works is to stop IPv6 resolution from ever succeeding in the
+// first place, for every resolver instance (dns.Resolver is what nodemailer,
+// and most other libraries, actually instantiate and call).
+dns.setDefaultResultOrder("ipv4first");
+const noIPv6 = (hostname, optionsOrCallback, maybeCallback) => {
+  const callback = typeof optionsOrCallback === "function" ? optionsOrCallback : maybeCallback;
+  if (typeof callback === "function") {
+    queueMicrotask(() => callback(Object.assign(new Error(`IPv6 lookups are disabled: ${hostname}`), { code: "ENOTFOUND", hostname })));
+  }
+};
+dns.resolve6 = noIPv6;
+if (dns.Resolver) dns.Resolver.prototype.resolve6 = noIPv6;
 
 let config;
 try {
