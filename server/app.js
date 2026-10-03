@@ -349,7 +349,7 @@ export async function createApp({ config, db, mailer, sms, outbox }) {
       // would just be confusing noise at that point.
       const byStatus = {
         expired: { code: "TOKEN_EXPIRED", message: "This verification link has expired." },
-        used: { code: "TOKEN_USED", message: "This link has already been used." },
+        used: { code: "TOKEN_USED", message: "This verification link has already been used and cannot be reused." },
       };
       const { code, message } = byStatus[found.status] || { code: "TOKEN_INVALID", message: "This verification link is invalid." };
       return res.status(400).json({ code, message });
