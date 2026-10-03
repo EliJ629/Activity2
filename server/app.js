@@ -342,7 +342,17 @@ export async function createApp({ config, db, mailer, sms, outbox }) {
   app.post("/api/verify-email", emailLinkLimiter, async (req, res) => {
     const found = await findLinkToken(str(req.body?.token), "email_verify");
     if (found.status !== "ok") {
-      return res.status(400).json({ code: found.status === "expired" ? "TOKEN_EXPIRED" : "TOKEN_INVALID", message: found.status === "expired" ? "This verification link has expired." : "This verification link is invalid or was already used." });
+      // "used" gets its own code: the account is almost certainly already
+      // verified (the most common real cause is an email provider's link
+      // scanner clicking it before the person ever does), so the frontend
+      // can point them straight to sign in instead of offering a resend that
+      // would just be confusing noise at that point.
+      const byStatus = {
+        expired: { code: "TOKEN_EXPIRED", message: "This verification link has expired." },
+        used: { code: "TOKEN_USED", message: "This link has already been used." },
+      };
+      const { code, message } = byStatus[found.status] || { code: "TOKEN_INVALID", message: "This verification link is invalid." };
+      return res.status(400).json({ code, message });
     }
     await markUsed(found.row.id);
     await db.prepare("UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?), updated_at = ? WHERE id = ?").run(nowIso(), nowIso(), found.row.user_id);

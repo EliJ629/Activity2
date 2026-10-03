@@ -79,7 +79,7 @@ export function CheckEmailPage() {
 /* ---------- the link in the email ---------- */
 export function VerifyEmailPage() {
   const token = new URLSearchParams(window.location.search).get("token") || "";
-  const [state, setState] = useState({ status: token ? "loading" : "error", message: token ? "" : "This verification link is missing its token." });
+  const [state, setState] = useState({ status: token ? "loading" : "error", code: token ? "" : "TOKEN_INVALID", message: token ? "" : "This verification link is missing its token." });
   const [email, setEmail] = useState("");
   const [resendMsg, setResendMsg] = useState("");
   const ran = useRef(false);
@@ -89,11 +89,11 @@ export function VerifyEmailPage() {
     ran.current = true;
     api("/verify-email", { method: "POST", body: { token } })
       .then((r) => {
-        setState({ status: "ok", message: "" });
+        setState({ status: "ok", code: "", message: "" });
         // the URL contains a one-time token: replace it so it doesn't stay in history
         navigate(r.next === "mobile" ? "/verify-mobile" : "/login?verified=1", { replace: true });
       })
-      .catch((err) => setState({ status: "error", message: err.message }));
+      .catch((err) => setState({ status: "error", code: err.body?.code || "", message: err.message }));
   }, [token]);
 
   const resend = async (e) => {
@@ -107,7 +107,13 @@ export function VerifyEmailPage() {
       <h1 className="card__title">Verify your email</h1>
       {state.status === "loading" && <p role="status">Verifying your email address...</p>}
       {state.status === "ok" && <p role="status">Email verified. Continuing...</p>}
-      {state.status === "error" && (
+      {state.status === "error" && state.code === "TOKEN_USED" && (
+        <>
+          <p className="banner banner--info" role="status">{state.message} If you've already verified your email, you can sign in now.</p>
+          <p className="form-note"><Link to="/login">Go to sign in</Link></p>
+        </>
+      )}
+      {state.status === "error" && state.code !== "TOKEN_USED" && (
         <>
           <p className="banner banner--error" role="alert">{state.message}</p>
           <form onSubmit={resend} className="stack" noValidate>
