@@ -5,7 +5,6 @@ import { Link, navigate } from "../router.jsx";
 import { api } from "../api.js";
 import { useApp, useCountdown } from "../auth.jsx";
 import { formatClock } from "../utils/dates.js";
-import { validateLoginEmail } from "../../shared/validation.js";
 
 /* ---------- after registering: "check your inbox" ---------- */
 export function CheckEmailPage() {
@@ -79,9 +78,7 @@ export function CheckEmailPage() {
 /* ---------- the link in the email ---------- */
 export function VerifyEmailPage() {
   const token = new URLSearchParams(window.location.search).get("token") || "";
-  const [state, setState] = useState({ status: token ? "loading" : "error", code: token ? "" : "TOKEN_INVALID", message: token ? "" : "This verification link is missing its token." });
-  const [email, setEmail] = useState("");
-  const [resendMsg, setResendMsg] = useState("");
+  const [state, setState] = useState({ status: token ? "loading" : "error", message: token ? "" : "This verification link is missing its token." });
   const ran = useRef(false);
 
   useEffect(() => {
@@ -89,43 +86,29 @@ export function VerifyEmailPage() {
     ran.current = true;
     api("/verify-email", { method: "POST", body: { token } })
       .then((r) => {
-        setState({ status: "ok", code: "", message: "" });
+        setState({ status: "ok", message: "" });
         // the URL contains a one-time token: replace it so it doesn't stay in history
         navigate(r.next === "mobile" ? "/verify-mobile" : "/login?verified=1", { replace: true });
       })
-      .catch((err) => setState({ status: "error", code: err.body?.code || "", message: err.message }));
+      .catch((err) => setState({ status: "error", message: err.message }));
   }, [token]);
 
-  const resend = async (e) => {
-    e.preventDefault();
-    try { setResendMsg((await api("/resend-verification", { method: "POST", body: { email } })).message); }
-    catch (err) { setResendMsg(err.message); }
-  };
-
+  // Whatever the exact reason a link can't be used - already clicked,
+  // past 24 hours, superseded by a newer registration attempt, or just
+  // malformed - this page never asks for an email to resend. Someone who
+  // genuinely needs a new link gets that option in one place: trying to
+  // sign in with an unverified account offers "Resend verification email"
+  // right there, so there's no second, inconsistent copy of that flow here.
   return (
     <section className="card auth-card">
       <h1 className="card__title">Verify your email</h1>
       {state.status === "loading" && <p role="status">Verifying your email address...</p>}
       {state.status === "ok" && <p role="status">Email verified. Continuing...</p>}
-      {state.status === "error" && state.code === "TOKEN_USED" && (
-        <>
-          <p className="banner banner--info" role="status">{state.message} If you've already verified your email, you can sign in now.</p>
-          <p className="form-note"><Link to="/login">Go to sign in</Link></p>
-        </>
-      )}
-      {state.status === "error" && state.code !== "TOKEN_USED" && (
+      {state.status === "error" && (
         <>
           <p className="banner banner--error" role="alert">{state.message}</p>
-          <form onSubmit={resend} className="stack" noValidate>
-            <p className="muted">Enter your email and we'll send a fresh link.</p>
-            <div className="field">
-              <label className="field__label" htmlFor="resendEmail">Email Address</label>
-              <input id="resendEmail" className="field__input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-            </div>
-            <button className="btn btn--secondary" type="submit" disabled={Boolean(validateLoginEmail(email))}>Send a new link</button>
-            {resendMsg && <p className="banner banner--success" role="status">{resendMsg}</p>}
-          </form>
-          <p className="form-note"><Link to="/login">Back to sign in</Link></p>
+          <p>If you've already verified your email, you can sign in directly. Otherwise, signing in will offer you a way to send a new link.</p>
+          <p className="form-note"><Link to="/login">Go to sign in</Link></p>
         </>
       )}
     </section>
