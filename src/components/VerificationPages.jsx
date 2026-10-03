@@ -107,8 +107,7 @@ export function VerifyEmailPage() {
       {state.status === "error" && (
         <>
           <p className="banner banner--error" role="alert">{state.message}</p>
-          <p>If you've already verified your email, you can sign in directly. Otherwise, signing in will offer you a way to send a new link.</p>
-          <p className="form-note"><Link to="/login">Go to sign in</Link></p>
+          <Link to="/login" className="btn btn--primary btn--block">Back to sign in</Link>
         </>
       )}
     </section>
