@@ -40,7 +40,7 @@ export function LoginForm() {
       navigate("/dashboard", { replace: true });
     } catch (err) {
       const code = err.body?.code;
-      if (code === "MOBILE_NOT_VERIFIED") { navigate("/verify-mobile"); return; }
+      if (code === "MOBILE_NOT_VERIFIED") { navigate("/verify-mobile?resumed=1"); return; }
       if (code === "EMAIL_NOT_VERIFIED") setNeedsVerify(true);
       setNotice({ kind: code === "ACCOUNT_LOCKED" ? "locked" : "error", text: err.message });
       setForm((f) => ({ ...f, password: "" }));

@@ -226,9 +226,15 @@ export function VerifyMobilePage() {
   }
 
   const locked = lockedFor > 0;
+  const resumed = new URLSearchParams(window.location.search).get("resumed") === "1";
   return (
     <section className="card auth-card">
       <h1 className="card__title">Verify your mobile</h1>
+      {resumed && (
+        <p className="banner banner--info" role="status">
+          Your email is verified, but you still need to enter the code we texted you to finish setting up your account.
+        </p>
+      )}
       <p>We texted a 6-digit code to <strong data-testid="otp-sent-to">{info.sentTo}</strong>. Enter it below.</p>
 
       {error && <p className="banner banner--error" role="alert">{error}</p>}
