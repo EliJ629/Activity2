@@ -85,3 +85,25 @@ test("login checks are format-only on the client", () => {
   assert.equal(v.validateLoginPassword("x"), "");        // no length rule on purpose
   assert.notEqual(v.validateLoginPassword(""), "");
 });
+
+test("mobile input: digits only, capped at 10 for the Philippines", () => {
+  assert.equal(v.maxMobileDigits("PH"), 10);
+  assert.equal(v.cleanMobileInput("9171234567", "PH"), "9171234567");
+  assert.equal(v.cleanMobileInput("917 123 4567 99999", "PH"), "9171234567");   // can't go past 10
+  assert.equal(v.cleanMobileInput("abc-917()123", "PH"), "917123");              // anything but digits is dropped
+  assert.equal(v.cleanMobileInput("09171234567", "PH"), "9171234567");           // local leading 0 is not part of +63's number
+  assert.equal(v.cleanMobileInput("+63 917 123 4567", "PH"), "9171234567");      // pasted with the country code
+  assert.equal(v.cleanMobileInput("639171234567", "PH"), "9171234567");
+  // whatever it cleans to is still a valid Philippine number
+  assert.equal(v.validateMobile("PH", v.cleanMobileInput("+63 917 123 4567", "PH")).error, "");
+});
+
+test("mobile input: other countries use their own limit, not a flat 10", () => {
+  assert.equal(v.maxMobileDigits("US"), 10);
+  assert.equal(v.cleanMobileInput("(415) 555-2671 9", "US"), "4155552671");
+  // a trunk-prefix 0 gets one extra digit, since the validator accepts it (UK: 07400 123456)
+  assert.equal(v.cleanMobileInput("07400 123456", "GB"), "07400123456");
+  assert.equal(v.validateMobile("GB", v.cleanMobileInput("07400 123456", "GB")).error, "");
+  // a country with longer numbers is not cut off at 10
+  assert.ok(v.maxMobileDigits("DE") > 10);
+});

@@ -210,6 +210,48 @@ test("lockout: 3 failures lock the account, unlock email is sent, 2-minute cooli
   await s.close();
 });
 
+test("email-available: only a VERIFIED account makes an email unavailable (same rule as registering)", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  const p = goodPayload();
+  const check = async (email) => (await c.get(`/api/email-available?email=${encodeURIComponent(email)}`)).data.available;
+  assert.equal(await check(p.email), true);                       // nobody has it
+  assert.equal((await c.post("/api/register", p)).status, 201);
+  assert.equal(await check(p.email), true);                       // registered but never verified: registering again would replace it
+  const token = new URL(s.outbox.list()[0].body.match(/https?:\/\/\S+/)[0]).searchParams.get("token");
+  assert.equal((await c.post("/api/verify-email", { token })).status, 200);
+  assert.equal(await check(p.email), false);                      // verified: taken
+  assert.equal(await check(p.email.toUpperCase()), false);        // case does not matter
+  assert.equal((await c.post("/api/register", goodPayload({ email: p.email }))).status, 409); // and registering agrees with the check
+  assert.equal(await check(""), true);                            // nothing typed: nothing to block
+  await s.close();
+});
+
+test("login: a wrong password reports how many attempts are left, and unknown emails look identical", async () => {
+  const s = await startServer();
+  const { c, payload } = await registerAndVerify(s);
+  const bad = (email) => c.post("/api/login", { email, password: "Bad!Password111" });
+  const ghost = "nobody.registered@gmail.com";
+
+  // real account: 2 left, 1 left, then locked
+  const r1 = await bad(payload.email); const r2 = await bad(payload.email); const r3 = await bad(payload.email);
+  // an email that was never registered must go through exactly the same steps
+  const g1 = await bad(ghost); const g2 = await bad(ghost); const g3 = await bad(ghost);
+
+  for (const [first, second] of [[r1, g1], [r2, g2]]) {
+    assert.equal(first.status, 401); assert.equal(second.status, 401);
+    assert.equal(first.data.message, "Invalid email or password.");   // the generic message itself never changes
+    assert.equal(first.data.attemptsLeft, second.data.attemptsLeft);
+  }
+  assert.equal(r1.data.attemptsLeft, 2);
+  assert.equal(r2.data.attemptsLeft, 1);
+  assert.equal(r3.status, 423); assert.equal(g3.status, 423);
+  assert.equal(r3.data.code, "ACCOUNT_LOCKED"); assert.equal(g3.data.code, "ACCOUNT_LOCKED");
+  assert.match(r3.data.message, /locked after 3 failed attempts in a row/);
+  assert.equal(r3.data.message, g3.data.message);
+  await s.close();
+});
+
 test("a successful login resets the failure counter (only consecutive failures count)", async () => {
   const s = await startServer();
   const { c, payload } = await registerAndVerify(s);

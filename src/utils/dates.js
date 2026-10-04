@@ -23,9 +23,11 @@ export function formatDate(iso) {
 
 // "1998-03-25" -> "March 25, 1998" (no time-zone shifting for plain dates)
 export function formatPlainDate(yyyyMmDd) {
-  const [y, m, d] = String(yyyyMmDd).split("-").map(Number);
-  if (!y || !m || !d) return "";
-  return `${MONTHS[m - 1]} ${d}, ${y}`;
+  // Reads the leading YYYY-MM-DD even if a time part follows it ("1998-03-25T00:00:00.000Z"),
+  // and falls back to showing the raw value rather than a blank - so a birthday never silently disappears.
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(yyyyMmDd ?? "").trim());
+  if (!m) return String(yyyyMmDd ?? "");
+  return `${MONTHS[Number(m[2]) - 1]} ${Number(m[3])}, ${Number(m[1])}`;
 }
 
 export function formatDateTime(iso) {

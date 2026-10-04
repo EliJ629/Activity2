@@ -42,7 +42,13 @@ export function LoginForm() {
       const code = err.body?.code;
       if (code === "MOBILE_NOT_VERIFIED") { navigate("/verify-mobile?resumed=1"); return; }
       if (code === "EMAIL_NOT_VERIFIED") setNeedsVerify(true);
-      setNotice({ kind: code === "ACCOUNT_LOCKED" ? "locked" : "error", text: err.message });
+      // After a wrong password, say how close the account is to being locked. It only ever
+      // appears right after a wrong attempt, and the count changes with each one.
+      const left = err.body?.attemptsLeft;
+      const extra = code === "INVALID_CREDENTIALS" && Number.isInteger(left) && left > 0
+        ? `Your account would be locked after ${left} more failed attempt${left === 1 ? "" : "s"}.`
+        : "";
+      setNotice({ kind: code === "ACCOUNT_LOCKED" ? "locked" : "error", text: err.message, extra });
       setForm((f) => ({ ...f, password: "" }));
       setTouched((t) => ({ ...t, password: false })); // the field was emptied on purpose
     } finally {
@@ -65,6 +71,7 @@ export function LoginForm() {
       {notice && (
         <p className={`banner banner--${notice.kind === "success" ? "success" : "error"}`} role={notice.kind === "success" ? "status" : "alert"}>
           {notice.text}
+          {notice.extra && <><br /><strong>{notice.extra}</strong></>}
         </p>
       )}
       {needsVerify && <button type="button" className="link-btn" onClick={resend}>Resend verification email</button>}

@@ -234,6 +234,12 @@ async function sendOtp(user) {
     next();
   }
 
+  // Always a plain "YYYY-MM-DD" string, whatever form the database hands back
+  // (a text column gives that already; a DATE column would arrive as a JS Date).
+  const plainDate = (b) => {
+    if (b instanceof Date) return `${b.getFullYear()}-${String(b.getMonth() + 1).padStart(2, "0")}-${String(b.getDate()).padStart(2, "0")}`;
+    return String(b ?? "").slice(0, 10);
+  };
   const publicUser = async (u, withPrivate = true) => {
     const a = await q.addressByUser.get(u.id);
     return {
@@ -242,7 +248,7 @@ async function sendOtp(user) {
       middleInitial: u.middle_initial || "",
       lastName: u.last_name,
       email: u.email,
-      birthday: withPrivate ? u.birthday : undefined,
+      birthday: withPrivate ? plainDate(u.birthday) : undefined,
       mobileNumber: withPrivate ? u.mobile_number : undefined,
       emailVerified: Boolean(u.email_verified_at),
       mobileVerified: Boolean(u.mobile_verified),
@@ -265,6 +271,7 @@ async function sendOtp(user) {
   const otpLimiter = limiter(config.rateLimit.otpMax, 60 * 60 * 1000, "Too many verification attempts. Please try again later.");
   const emailLinkLimiter = limiter(30, 60 * 60 * 1000, "Too many attempts. Please try again later.");
   const resendLimiter = limiter(5, 60 * 60 * 1000, "Too many requests. Please try again later.");
+  const emailCheckLimiter = limiter(60, 15 * 60 * 1000, "Too many email checks. Please slow down.");
   const generalLimiter = limiter(config.rateLimit.generalMax, 15 * 60 * 1000, "Too many requests. Please slow down.");
 
   /* =====================================================
@@ -323,6 +330,16 @@ async function sendOtp(user) {
     const email = normalizeEmail(str(req.query?.email));
     const user = email ? await q.userByEmail.get(email) : null;
     res.json({ emailVerified: Boolean(user?.email_verified_at), mobileVerified: Boolean(user?.mobile_verified) });
+  });
+
+  // Live "is this email already taken?" check for the registration form. Uses the
+  // same rule registration itself applies: only a VERIFIED account blocks an email
+  // (an unverified earlier attempt gets replaced, see POST /api/register). Rate
+  // limited, since like the 409 on registration it does say whether an email is registered.
+  app.get("/api/email-available", emailCheckLimiter, async (req, res) => {
+    const email = normalizeEmail(str(req.query?.email));
+    const user = email ? await q.userByEmail.get(email) : null;
+    res.json({ available: !user?.email_verified_at });
   });
 
   if (outbox.enabled) {
@@ -489,21 +506,27 @@ async function sendOtp(user) {
   // "account locked" answer looks identical for real and unknown emails.
   const shadow = new Map();
   const shadowLocked = (email) => (shadow.get(email)?.until || 0) > Date.now();
+  // Returns how many attempts are left. There is deliberately no time-based reset: a real
+  // account's failure counter only resets on a successful sign-in or an unlock, and this has
+  // to count the same way - otherwise the "attempts left" message would behave differently
+  // for unregistered emails and give away which ones are registered.
   function shadowFail(email) {
     const now = Date.now();
     const s = shadow.get(email) || { count: 0, until: 0, last: 0 };
-    if (now - s.last > 15 * 60 * 1000) s.count = 0;
     s.count += 1;
     s.last = now;
     if (s.count >= config.login.maxFailures) s.until = now + 30 * 60 * 1000;
     shadow.set(email, s);
     if (shadow.size > 5000) for (const [k, v] of shadow) if (now - v.last > 30 * 60 * 1000) shadow.delete(k);
+    return Math.max(0, config.login.maxFailures - s.count);
   }
   const lockedReply = (res) => res.status(423).json({
     code: "ACCOUNT_LOCKED",
-    message: `Your account is locked after ${config.login.maxFailures} failed sign-in attempts. We sent an unlock link to your registered email. It works after a ${waitLabel(config.login.unlockCooldownMs)} waiting period.`,
+    message: `Your account is locked after ${config.login.maxFailures} failed attempts in a row. We sent an unlock link to your registered email. It works after a ${waitLabel(config.login.unlockCooldownMs)} waiting period.`,
   });
-  const invalidReply = (res) => res.status(401).json({ code: "INVALID_CREDENTIALS", message: "Invalid email or password." });
+  // The message stays the generic one the requirements ask for; attemptsLeft is a separate
+  // field so the sign-in screen can add "locked after N more failed attempts" to it.
+  const invalidReply = (res, attemptsLeft) => res.status(401).json({ code: "INVALID_CREDENTIALS", message: "Invalid email or password.", attemptsLeft });
 
   app.post("/api/login", loginLimiter, async (req, res) => {
     const email = normalizeEmail(str(req.body?.email));
@@ -514,8 +537,8 @@ async function sendOtp(user) {
     if (!user) {
       if (shadowLocked(email)) return lockedReply(res);
       await argon2.verify(dummyHash, password).catch(() => false);
-      shadowFail(email);
-      return shadowLocked(email) ? lockedReply(res) : invalidReply(res);
+      const left = shadowFail(email);
+      return left === 0 ? lockedReply(res) : invalidReply(res, left);
     }
 
     // step 3: is the account locked?
@@ -531,7 +554,7 @@ async function sendOtp(user) {
       const failures = user.failed_login_attempts + 1; // step 6: increment
       if (failures >= config.login.maxFailures) { await lockUser(user); return lockedReply(res); } // step 7
       await db.prepare("UPDATE users SET failed_login_attempts = ?, updated_at = ? WHERE id = ?").run(failures, nowIso(), user.id);
-      return invalidReply(res);
+      return invalidReply(res, config.login.maxFailures - failures);
     }
     await db.prepare("UPDATE users SET failed_login_attempts = 0, updated_at = ? WHERE id = ?").run(nowIso(), user.id);
 

@@ -9,7 +9,7 @@ import { api } from "../api.js";
 import { checkEmailDomain } from "../utils/emailApi.js";
 import { getCountry } from "../../shared/countries.js";
 import {
-  NAME_MAX_LENGTH, validateEmail, emailDomain, validateRegistration, normalizeEmail,
+  NAME_MAX_LENGTH, validateEmail, emailDomain, validateRegistration, normalizeEmail, cleanMobileInput,
 } from "../../shared/validation.js";
 
 const EMPTY_FORM = {
@@ -63,6 +63,7 @@ export function RegistrationForm() {
   const [submitting, setSubmitting] = useState(false);
   const [revealPasswords, setRevealPasswords] = useState(false);
   const [domainCheck, setDomainCheck] = useState({ domain: "", status: "" }); // "checking" | "valid" | "invalid" | "error"
+  const [emailCheck, setEmailCheck] = useState({ email: "", status: "" }); // "available" | "taken"
 
   // Check the email domain through the DNS API, 500 ms after the user stops typing
   useEffect(() => {
@@ -81,6 +82,25 @@ export function RegistrationForm() {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [form.email]);
 
+  // Ask the server whether this email is already registered, 500 ms after the user
+  // stops typing - so they find out while filling in the form, not after pressing
+  // "Create account". Only asks once the address is complete and allowed. If the
+  // request fails (offline, rate limited) nothing is blocked: the server checks again on submit.
+  useEffect(() => {
+    if (validateEmail(form.email)) {
+      setEmailCheck({ email: "", status: "" });
+      return undefined;
+    }
+    const email = normalizeEmail(form.email);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api(`/email-available?email=${encodeURIComponent(email)}`)
+        .then((r) => { if (!cancelled) setEmailCheck({ email, status: r.available ? "available" : "taken" }); })
+        .catch(() => { if (!cancelled) setEmailCheck({ email: "", status: "" }); });
+    }, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [form.email]);
+
   // Validation runs live on every change
   const payload = toPayload(form);
   const countryName = getCountry(form.address.countryCode)?.name;
@@ -88,6 +108,8 @@ export function RegistrationForm() {
   if (!allErrors.email && domainCheck.status === "invalid") {
     allErrors.email = `"@${domainCheck.domain}" doesn't exist or can't receive email.`;
   }
+  const emailChecked = emailCheck.email === normalizeEmail(form.email) ? emailCheck.status : "";
+  if (!allErrors.email && emailChecked === "taken") allErrors.email = "An account with this email already exists.";
   const merged = { ...allErrors, ...serverErrors };
   const errors = Object.fromEntries(Object.entries(merged).filter(([k]) => touched[k] || serverErrors[k]));
 
@@ -108,7 +130,12 @@ const set = (key, keys = [key]) => (eOrVal) => {
   setFormError("");
 };
   const setAddress = (next, keys) => {
-    setForm((f) => ({ ...f, address: next }));
+    setForm((f) => ({
+      ...f,
+      address: next,
+      // a different country has a different limit (and prefix): trim what was already typed
+      mobile: next.countryCode !== f.address.countryCode ? cleanMobileInput(f.mobile, next.countryCode) : f.mobile,
+    }));
     touch(keys);
     clearServer(keys);
     setFormError("");
@@ -173,6 +200,7 @@ const set = (key, keys = [key]) => (eOrVal) => {
           {domainCheck.status === "checking" && <span className="field__hint is-checking">Checking email domain...</span>}
           {domainCheck.status === "valid" && <span className="field__hint is-valid">Email domain verified</span>}
           {domainCheck.status === "error" && <span className="field__hint">Couldn't verify the domain right now (no connection to the DNS API).</span>}
+          {emailChecked === "available" && !errors.email && <span className="field__hint is-valid">Email is available</span>}
         </TextField>
 
         <TextField id="password" label="Password" type="password" autoComplete="new-password" forceVisible={revealPasswords}

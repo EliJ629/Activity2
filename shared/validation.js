@@ -6,7 +6,7 @@
    Every rule here comes from the requirements document.
    ========================================================= */
 import postalCodes from "postal-codes-js";
-import { parsePhoneNumberFromString, getCountryCallingCode } from "libphonenumber-js/mobile";
+import { parsePhoneNumberFromString, getCountryCallingCode, validatePhoneNumberLength } from "libphonenumber-js/mobile";
 
 /* ---------- names ---------- */
 export const NAME_MIN_LENGTH = 2;
@@ -216,6 +216,43 @@ export function validateZip(countryCode, value) {
 /* ---------- mobile number ---------- */
 export function dialCode(countryCode) {
   try { return getCountryCallingCode(countryCode); } catch { return ""; }
+}
+
+// How many digits the mobile input accepts after the +prefix. The Philippines
+// is exactly 10 (the requirements document's own example: "10 digits following
+// +63"). Elsewhere it is the longest length the phone library treats as
+// possible for that country - deliberately a little loose, because that data
+// also covers non-mobile lines; the full numbering-plan check still runs on
+// every submit, so this only stops obviously over-long input.
+const maxDigitsCache = new Map();
+export function maxMobileDigits(countryCode) {
+  if (countryCode === "PH") return 10;
+  if (maxDigitsCache.has(countryCode)) return maxDigitsCache.get(countryCode);
+  const dial = dialCode(countryCode);
+  let max = 0;
+  if (dial) {
+    for (let len = 1; len <= 15 - dial.length; len++) {
+      if (validatePhoneNumberLength(`+${dial}${"9".repeat(len)}`, countryCode) === undefined) max = len;
+    }
+  }
+  const result = max || 15; // unknown country: only the E.164 ceiling applies
+  maxDigitsCache.set(countryCode, result);
+  return result;
+}
+
+// Turns whatever was typed or pasted into digits only, capped to the country's
+// limit. A number pasted with its country code ("+63 917 123 4567") has the
+// code dropped, since it is already shown as the prefix. For the Philippines a
+// leading 0 (09171234567) is dropped too, because it is never written after +63.
+export function cleanMobileInput(raw, countryCode) {
+  let digits = String(raw ?? "").replace(/\D/g, "");
+  const dial = dialCode(countryCode);
+  const max = maxMobileDigits(countryCode);
+  if (dial && digits.length > max && digits.startsWith(dial)) digits = digits.slice(dial.length);
+  if (countryCode === "PH") digits = digits.replace(/^0+/, "");
+  // Elsewhere a leading 0 is usually a trunk prefix the validator accepts, so it gets one extra digit
+  const limit = countryCode !== "PH" && digits.startsWith("0") ? max + 1 : max;
+  return digits.slice(0, limit);
 }
 
 // `national` is what the user typed after the +prefix. A leading 0 (the local

@@ -173,6 +173,7 @@ export function SettingsPage() {
         <h2 className="page__subtitle">Security</h2>
         <dl className="details">
           <Row label="Signed in as">{user.email}</Row>
+          <Row label="Birthday">{formatPlainDate(user.birthday)}</Row>
           <Row label="Session expires">{formatDateTime(sessionExpiresAt)}</Row>
           <Row label="Account lock">After {config.login.maxFailures} failed sign-ins, with an unlock link by email ({Math.round(config.login.unlockCooldownSeconds / 60)}-minute waiting period)</Row>
           <Row label="Time zone">Asia/Manila (Philippine Standard Time)</Row>
