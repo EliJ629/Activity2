@@ -7,7 +7,7 @@ import { useApp } from "../auth.jsx";
 import { validateLoginEmail, validateLoginPassword } from "../../shared/validation.js";
 
 export function LoginForm() {
-  const { refresh, config } = useApp();
+  const { refresh } = useApp();
   const params = new URLSearchParams(window.location.search);
   const [form, setForm] = useState({ email: "", password: "" });
   const [touched, setTouched] = useState({});
@@ -16,6 +16,7 @@ export function LoginForm() {
       : params.get("unlocked") ? { kind: "success", text: "Your account is unlocked. You can sign in now." } : null,
   );
   const [needsVerify, setNeedsVerify] = useState(false);
+  const [notRegistered, setNotRegistered] = useState(""); // shown under the email field
   const [submitting, setSubmitting] = useState(false);
 
   // Client-side format checks only. The password is only checked for "not empty".
@@ -24,8 +25,9 @@ export function LoginForm() {
   const pwErr = validateLoginPassword(form.password);
   if (emailErr && touched.email) errors.email = emailErr;
   if (pwErr && touched.password) errors.password = pwErr;
+  if (notRegistered && !errors.email) errors.email = notRegistered;
 
-  const set = (key) => (val) => { setForm((f) => ({ ...f, [key]: val })); setTouched((t) => ({ ...t, [key]: true })); setNotice(null); };
+  const set = (key) => (val) => { setForm((f) => ({ ...f, [key]: val })); setTouched((t) => ({ ...t, [key]: true })); setNotice(null); if (key === "email") setNotRegistered(""); };
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -33,6 +35,7 @@ export function LoginForm() {
     if (emailErr || pwErr) return;
     setSubmitting(true);
     setNotice(null);
+    setNotRegistered("");
     setNeedsVerify(false);
     try {
       await api("/login", { method: "POST", body: form });
@@ -41,6 +44,9 @@ export function LoginForm() {
     } catch (err) {
       const code = err.body?.code;
       if (code === "MOBILE_NOT_VERIFIED") { navigate("/verify-mobile?resumed=1"); return; }
+      // No account for this email: say so next to the email field. Nothing about attempts or
+      // locking applies (there's no account), and the password stays so only the email needs fixing.
+      if (code === "EMAIL_NOT_REGISTERED") { setNotRegistered(err.message); return; }
       if (code === "EMAIL_NOT_VERIFIED") setNeedsVerify(true);
       // After a wrong password, say how close the account is to being locked. It only ever
       // appears right after a wrong attempt, and the count changes with each one.
@@ -87,7 +93,6 @@ export function LoginForm() {
         {submitting ? "Signing in..." : "Sign in"}
       </button>
       <p className="form-note">
-        Your account is locked after {config.login.maxFailures} failed attempts in a row.<br />
         New here? <Link to="/register">Create an account</Link>
       </p>
     </form>

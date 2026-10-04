@@ -83,7 +83,7 @@ test("register -> password is stored as Argon2id; an unverified duplicate is rep
   await s.close();
 });
 
-test("an unverified account cannot sign in; wrong password stays generic", async () => {
+test("an unverified account cannot sign in; a wrong password gets the generic message, an unregistered email is told so", async () => {
   const s = await startServer();
   const c = client(s.base);
   const p = goodPayload();
@@ -94,9 +94,10 @@ test("an unverified account cannot sign in; wrong password stays generic", async
   const bad = await c.post("/api/login", { email: p.email, password: "Wrong!Password1" });
   const unknown = await c.post("/api/login", { email: "nobody@gmail.com", password: "Wrong!Password1" });
   assert.equal(bad.status, 401);
-  assert.equal(unknown.status, 401);
-  assert.equal(bad.data.message, unknown.data.message);
-  assert.equal(bad.data.message, "Invalid email or password.");
+  assert.equal(bad.data.message, "Invalid email or password.");   // a real account with a wrong password stays generic
+  assert.equal(unknown.status, 404);
+  assert.equal(unknown.data.code, "EMAIL_NOT_REGISTERED");
+  assert.equal(unknown.data.message, "This email is not yet registered on this website.");
   await s.close();
 });
 
@@ -227,28 +228,18 @@ test("email-available: only a VERIFIED account makes an email unavailable (same 
   await s.close();
 });
 
-test("login: a wrong password reports how many attempts are left, and unknown emails look identical", async () => {
+test("login: a wrong password reports how many attempts are left", async () => {
   const s = await startServer();
   const { c, payload } = await registerAndVerify(s);
-  const bad = (email) => c.post("/api/login", { email, password: "Bad!Password111" });
-  const ghost = "nobody.registered@gmail.com";
-
-  // real account: 2 left, 1 left, then locked
-  const r1 = await bad(payload.email); const r2 = await bad(payload.email); const r3 = await bad(payload.email);
-  // an email that was never registered must go through exactly the same steps
-  const g1 = await bad(ghost); const g2 = await bad(ghost); const g3 = await bad(ghost);
-
-  for (const [first, second] of [[r1, g1], [r2, g2]]) {
-    assert.equal(first.status, 401); assert.equal(second.status, 401);
-    assert.equal(first.data.message, "Invalid email or password.");   // the generic message itself never changes
-    assert.equal(first.data.attemptsLeft, second.data.attemptsLeft);
-  }
-  assert.equal(r1.data.attemptsLeft, 2);
+  const bad = () => c.post("/api/login", { email: payload.email, password: "Bad!Password111" });
+  const r1 = await bad(); const r2 = await bad(); const r3 = await bad();
+  assert.equal(r1.status, 401); assert.equal(r2.status, 401);
+  assert.equal(r1.data.message, "Invalid email or password.");   // the message itself stays generic
+  assert.equal(r1.data.attemptsLeft, 2);                          // 2 more, then 1 more, then locked
   assert.equal(r2.data.attemptsLeft, 1);
-  assert.equal(r3.status, 423); assert.equal(g3.status, 423);
-  assert.equal(r3.data.code, "ACCOUNT_LOCKED"); assert.equal(g3.data.code, "ACCOUNT_LOCKED");
+  assert.equal(r3.status, 423);
+  assert.equal(r3.data.code, "ACCOUNT_LOCKED");
   assert.match(r3.data.message, /locked after 3 failed attempts in a row/);
-  assert.equal(r3.data.message, g3.data.message);
   await s.close();
 });
 
@@ -263,12 +254,24 @@ test("a successful login resets the failure counter (only consecutive failures c
   await s.close();
 });
 
-test("unknown emails get the same 'locked' answer (no user enumeration)", async () => {
+test("an unregistered email is told so - no attempt count, no lock - and registering it later starts clean", async () => {
   const s = await startServer();
   const c = client(s.base);
-  const r = [];
-  for (let i = 0; i < 3; i++) r.push(await c.post("/api/login", { email: "ghost@gmail.com", password: "Whatever!123" }));
-  assert.deepEqual(r.map((x) => x.status), [401, 401, 423]);
+  const ghost = "ghost.notyet@gmail.com";
+  // well past the lock threshold of 3: nothing is counted and nothing locks, there is no account
+  for (let i = 0; i < 6; i++) {
+    const r = await c.post("/api/login", { email: ghost, password: "Whatever!123" });
+    assert.equal(r.status, 404);
+    assert.equal(r.data.code, "EMAIL_NOT_REGISTERED");
+    assert.equal(r.data.message, "This email is not yet registered on this website.");
+    assert.equal(r.data.attemptsLeft, undefined);
+    assert.doesNotMatch(r.data.message, /lock/i);
+  }
+  // once that email really registers, the earlier tries must not count against it
+  const { c: c2, payload } = await registerAndVerify(s, { email: ghost });
+  const first = await c2.post("/api/login", { email: payload.email, password: "Bad!Password111" });
+  assert.equal(first.status, 401);
+  assert.equal(first.data.attemptsLeft, 2);
   await s.close();
 });
 

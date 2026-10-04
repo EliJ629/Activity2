@@ -4,7 +4,7 @@
    Requirement map
      1b  security ........ HTTPS enforcement, Argon2id, rate limit, CSRF
      2   verification .... email link (24 h) + SMS OTP (6 digits, 5 min, 3 tries, resend after 60 s)
-     3   login ........... generic errors, lock after 3 failures, unlock email + 2-minute cooling period
+     3   login ........... generic wrong-password error, "not registered" notice for unknown emails, lock after 3 failures, unlock email + 2-minute cooling period
      4   database ........ schema.sql (users / addresses / verification_tokens + sessions) - PostgreSQL
      5   landing page .... /api/me, /api/accounts (used by the modal), logout
    ========================================================= */
@@ -54,8 +54,6 @@ export async function createApp({ config, db, mailer, sms, outbox }) {
 
   const argonOptions = { type: argon2.argon2id, memoryCost: config.argon2.memoryCost, timeCost: config.argon2.timeCost, parallelism: config.argon2.parallelism };
   const hashPassword = (pw) => argon2.hash(pw, argonOptions);
-  // Verified when the email doesn't exist, so response time doesn't reveal which emails are registered
-  const dummyHash = await hashPassword(crypto.randomBytes(16).toString("hex"));
 
   /* ---------- prepared statements ---------- */
   const q = {
@@ -502,24 +500,13 @@ async function sendOtp(user) {
   });
 
   /* ---------- login (section 3) ---------- */
-  // Failed attempts for emails that are NOT registered are counted too, so the
-  // "account locked" answer looks identical for real and unknown emails.
-  const shadow = new Map();
-  const shadowLocked = (email) => (shadow.get(email)?.until || 0) > Date.now();
-  // Returns how many attempts are left. There is deliberately no time-based reset: a real
-  // account's failure counter only resets on a successful sign-in or an unlock, and this has
-  // to count the same way - otherwise the "attempts left" message would behave differently
-  // for unregistered emails and give away which ones are registered.
-  function shadowFail(email) {
-    const now = Date.now();
-    const s = shadow.get(email) || { count: 0, until: 0, last: 0 };
-    s.count += 1;
-    s.last = now;
-    if (s.count >= config.login.maxFailures) s.until = now + 30 * 60 * 1000;
-    shadow.set(email, s);
-    if (shadow.size > 5000) for (const [k, v] of shadow) if (now - v.last > 30 * 60 * 1000) shadow.delete(k);
-    return Math.max(0, config.login.maxFailures - s.count);
-  }
+  // An email with no account is told so plainly. That is a deliberate choice - it helps
+  // someone who mistyped their address - but note it does let anyone check whether an
+  // email is registered, which requirement 3.b.iv of the document ("generic error messages
+  // ... to prevent user enumeration attacks") asks to avoid; the sign-in rate limit is what
+  // holds mass probing back. There is no account to count failures against or to lock, so
+  // none of the attempt/lock messages ever apply to these emails.
+  const notRegisteredReply = (res) => res.status(404).json({ code: "EMAIL_NOT_REGISTERED", message: "This email is not yet registered on this website." });
   const lockedReply = (res) => res.status(423).json({
     code: "ACCOUNT_LOCKED",
     message: `Your account is locked after ${config.login.maxFailures} failed attempts in a row. We sent an unlock link to your registered email. It works after a ${waitLabel(config.login.unlockCooldownMs)} waiting period.`,
@@ -534,12 +521,7 @@ async function sendOtp(user) {
     if (validateLoginEmail(email) || !password || password.length > 1024) return res.status(400).json({ code: "BAD_REQUEST", message: "Enter your email and password." });
 
     const user = await q.userByEmail.get(email);
-    if (!user) {
-      if (shadowLocked(email)) return lockedReply(res);
-      await argon2.verify(dummyHash, password).catch(() => false);
-      const left = shadowFail(email);
-      return left === 0 ? lockedReply(res) : invalidReply(res, left);
-    }
+    if (!user) return notRegisteredReply(res);
 
     // step 3: is the account locked?
     if (user.is_locked) {
