@@ -99,12 +99,14 @@ export function RegistrationForm() {
     return next;
   });
 
-  const set = (key, keys = [key]) => (val) => {
-    setForm((f) => ({ ...f, [key]: val }));
-    touch(keys);
-    clearServer(keys);
-    setFormError("");
-  };
+// AFTER
+const set = (key, keys = [key]) => (eOrVal) => {
+  const val = eOrVal && eOrVal.target !== undefined ? eOrVal.target.value : eOrVal;
+  setForm((f) => ({ ...f, [key]: val }));
+  touch(keys);
+  clearServer(keys);
+  setFormError("");
+};
   const setAddress = (next, keys) => {
     setForm((f) => ({ ...f, address: next }));
     touch(keys);

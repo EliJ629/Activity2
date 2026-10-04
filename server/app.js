@@ -62,8 +62,7 @@ export async function createApp({ config, db, mailer, sms, outbox }) {
     userByEmail: db.prepare("SELECT * FROM users WHERE email = ?"),
     userById: db.prepare("SELECT * FROM users WHERE id = ?"),
     addressByUser: db.prepare("SELECT * FROM addresses WHERE user_id = ?"),
-    latestToken: db.prepare("SELECT * FROM verification_tokens WHERE user_id = ? AND type = ? ORDER BY created_at DESC, seq DESC LIMIT 1"),
-  };
+    latestToken: db.prepare("SELECT * FROM verification_tokens WHERE user_id = ? AND type = ? ORDER BY created_at DESC LIMIT 1")  };
   // SQL text for the two inserts that make up registration - prepared fresh
   // against the transaction's own connection inside POST /api/register, so
   // they run on the same connection as the surrounding BEGIN/COMMIT.
@@ -113,11 +112,18 @@ export async function createApp({ config, db, mailer, sms, outbox }) {
 
   /* ---------- OTP (section 2c) ---------- */
   const otpHash = (userId, code) => crypto.createHmac("sha256", config.secret).update(`otp:${userId}:${code}`).digest("hex");
-  const timeZoneFor = async (userId) => {
+// AFTER
+const timeZoneFor = async (userId) => {
+  try {
     const a = await q.addressByUser.get(userId);
-    return tzData.getCountry(a?.country_code || "")?.timezones?.[0] || "UTC";
-  };
-
+    if (!a?.country_code) return "UTC";
+    const countryInfo = tzData.getCountry(a.country_code);
+    return countryInfo?.timezones?.[0] || "UTC";
+  } catch (err) {
+    console.error("Error resolving time zone:", err.message);
+    return "UTC";
+  }
+};
   async function otpState(user) {
     const last = await q.latestToken.get(user.id, "mobile_otp");
     const now = Date.now();
@@ -133,16 +139,66 @@ export async function createApp({ config, db, mailer, sms, outbox }) {
     };
   }
 
-  async function sendOtp(user) {
+async function sendOtp(user) {
     const state = await otpState(user);
-    if (state.lockedForSeconds) return { error: { status: 423, code: "OTP_LOCKED", message: "Too many wrong codes. Try again later.", retryAfter: state.lockedForSeconds } };
-    if (state.resendInSeconds) return { error: { status: 429, code: "OTP_COOLDOWN", message: `Please wait ${state.resendInSeconds}s before requesting another code.`, retryAfter: state.resendInSeconds } };
-    const code = String(crypto.randomInt(0, 10 ** config.otp.length)).padStart(config.otp.length, "0");
+
+    //console.log("[OTP] state:", state);
+
+    if (state.lockedForSeconds) {
+        console.log("[OTP] BLOCKED: locked");
+        return {
+            error: {
+                status: 423,
+                code: "OTP_LOCKED",
+                message: "Too many wrong codes. Try again later.",
+                retryAfter: state.lockedForSeconds
+            }
+        };
+    }
+
+    if (state.resendInSeconds) {
+        console.log("[OTP] BLOCKED: cooldown", state.resendInSeconds);
+        return {
+            error: {
+                status: 429,
+                code: "OTP_COOLDOWN",
+                message: `Please wait ${state.resendInSeconds}s before requesting another code.`,
+                retryAfter: state.resendInSeconds
+            }
+        };
+    }
+
+    const code = String(
+        crypto.randomInt(0, 10 ** config.otp.length)
+    ).padStart(config.otp.length, "0");
+
+    //console.log("[OTP] generated:", code);
+
     const expiresAt = new Date(Date.now() + config.otp.ttlMs);
-    await sms.send(user.mobile_number, otpSms({ appName: config.appName, code, expiresAt, timeZone: await timeZoneFor(user.id), ttlMinutes: Math.round(config.otp.ttlMs / 60000) }));
-    await insertToken(user.id, "mobile_otp", otpHash(user.id, code), config.otp.ttlMs);
+    //console.log("[OTP] generated:", code);
+    await sms.send(
+        user.mobile_number,
+        otpSms({
+            appName: config.appName,
+            code,
+            expiresAt,
+            timeZone: await timeZoneFor(user.id),
+            ttlMinutes: Math.round(config.otp.ttlMs / 60000)
+        })
+    );
+
+    console.log("[OTP] sent to SMS service/outbox");
+
+    await insertToken(
+        user.id,
+        "mobile_otp",
+        otpHash(user.id, code),
+        config.otp.ttlMs
+    );
+
     return { state: await otpState(user) };
-  }
+    
+}
 
   /* ---------- onboarding cookie: proves "I just verified my email / passed the password check" ---------- */
   const ONB = "onb";
