@@ -41,6 +41,9 @@ export function LoginForm() {
     } catch (err) {
       const code = err.body?.code;
       if (code === "MOBILE_NOT_VERIFIED") { navigate("/verify-mobile?resumed=1"); return; }
+      // No account for this email: say so and point at registration. Nothing about attempts or locking applies, and the
+      // typed password stays so only the email needs fixing.
+      if (code === "EMAIL_NOT_REGISTERED") { setNotice({ kind: "notRegistered", text: err.message }); return; }
       if (code === "EMAIL_NOT_VERIFIED") setNeedsVerify(true);
       // After a wrong password, say how close the account is to being locked. It only ever
       // appears right after a wrong attempt, and the count changes with each one.
@@ -70,7 +73,9 @@ export function LoginForm() {
 
       {notice && (
         <p className={`banner banner--${notice.kind === "success" ? "success" : "error"}`} role={notice.kind === "success" ? "status" : "alert"}>
-          {notice.text}
+          {notice.kind === "notRegistered"
+            ? <>This email is not yet registered on this website; <Link to="/register">register now</Link> to log in.</>
+            : notice.text}
           {notice.extra && <><br /><strong>{notice.extra}</strong></>}
         </p>
       )}

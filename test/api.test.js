@@ -86,20 +86,22 @@ test("register -> password is stored as Argon2id; an unverified duplicate is rep
   await s.close();
 });
 
-test("an unverified account cannot sign in; wrong password stays generic", async () => {
+test("an unverified email is told to verify first, whatever password is typed, and it is never counted or locked", async () => {
   const s = await startServer();
   const c = client(s.base);
   const p = goodPayload();
   await c.post("/api/register", p);
-  const good = await c.post("/api/login", { email: p.email, password: p.password });
-  assert.equal(good.status, 403);
-  assert.equal(good.data.code, "EMAIL_NOT_VERIFIED");
-  const bad = await c.post("/api/login", { email: p.email, password: "Wrong!Password1" });
-  const unknown = await c.post("/api/login", { email: "nobody@gmail.com", password: "Wrong!Password1" });
-  assert.equal(bad.status, 401);
-  assert.equal(unknown.status, 401);
-  assert.equal(bad.data.message, unknown.data.message);
-  assert.equal(bad.data.message, "Invalid email or password.");
+  const expected = /check your email.*click the verification link.*enter the OTP.*complete verification/i;
+  for (const password of [p.password, "Wrong!Password1", "x", p.password, "Wrong!Password2", "Wrong!Password3"]) {
+    const r = await c.post("/api/login", { email: p.email, password });
+    assert.equal(r.status, 403);
+    assert.equal(r.data.code, "EMAIL_NOT_VERIFIED");
+    assert.match(r.data.message, expected);
+    assert.equal(r.data.attemptsLeft, undefined);
+  }
+  const row = await s.db.prepare("SELECT failed_login_attempts, is_locked FROM users WHERE email = ?").get(p.email);
+  assert.equal(row.failed_login_attempts, 0);       // six tries, none counted
+  assert.equal(row.is_locked, false);
   await s.close();
 });
 
@@ -256,30 +258,54 @@ test("a successful login resets the failure counter (only consecutive failures c
   await s.close();
 });
 
-test("unknown emails get the same 'locked' answer (no user enumeration)", async () => {
+test("an email with no account is told to register, with no attempt count and no lock", async () => {
   const s = await startServer();
   const c = client(s.base);
-  const r = [];
-  for (let i = 0; i < 3; i++) r.push(await c.post("/api/login", { email: "ghost@gmail.com", password: "Whatever!123" }));
-  assert.deepEqual(r.map((x) => x.status), [401, 401, 423]);
+  for (let i = 0; i < 8; i++) {                      // well past the lock threshold of 3
+    const r = await c.post("/api/login", { email: "ghost.notyet@gmail.com", password: "Whatever!123" });
+    assert.equal(r.status, 404);
+    assert.equal(r.data.code, "EMAIL_NOT_REGISTERED");
+    assert.equal(r.data.message, "This email is not yet registered on this website; register now to log in.");
+    assert.equal(r.data.attemptsLeft, undefined);
+  }
   await s.close();
 });
 
-test("login: unknown emails get exactly the same answers as real ones, step by step (no user enumeration)", async () => {
-  const s = await startServer();
-  const { c, payload } = await registerAndVerify(s);
-  const bad = (email) => c.post("/api/login", { email, password: "Bad!Password111" });
-  const real = [await bad(payload.email), await bad(payload.email), await bad(payload.email)];
-  const ghost = "nobody.registered@gmail.com";
-  const unknown = [await bad(ghost), await bad(ghost), await bad(ghost)];
-  for (let i = 0; i < 3; i++) {
-    assert.equal(unknown[i].status, real[i].status, `attempt ${i + 1}`);
-    assert.equal(unknown[i].data.code, real[i].data.code);
-    assert.equal(unknown[i].data.message, real[i].data.message);
-    assert.equal(unknown[i].data.attemptsLeft, real[i].data.attemptsLeft);
-  }
-  assert.deepEqual(real.map((r) => r.status), [401, 401, 423]);
-  assert.equal(real[0].data.message, "Invalid email or password.");
+test("email verified but OTP not entered: signing in opens the OTP step and texts a code", async () => {
+  const s = await startServer({ rateLimit: { registerMax: 500, loginMax: 500, otpMax: 500, generalMax: 5000 }, otp: { resendMs: 0, lockMs: 4000 } });
+  const { c, payload } = await registerAndVerify(s, {}, { mobile: false });   // email verified; verify-email texted the first code
+  const smsCount = () => s.outbox.list().filter((m) => m.type === "sms").length;
+  const before = smsCount();
+
+  // 1) a code is already active: signing in doesn't text another, but still opens the OTP step
+  const c2 = client(s.base);
+  const r1 = await c2.post("/api/login", { email: payload.email, password: payload.password });
+  assert.equal(r1.status, 403);
+  assert.equal(r1.data.code, "MOBILE_NOT_VERIFIED");
+  assert.equal(r1.data.otpSent, false);
+  assert.equal(smsCount(), before);
+  assert.equal((await c2.get("/api/otp/status")).status, 200);                // the OTP-entry session was granted
+
+  // 2) no active code (it was used up or expired): signing in texts a fresh one
+  await s.db.query("UPDATE verification_tokens SET used_at = $1 WHERE type = 'mobile_otp'", [new Date().toISOString()]);
+  const r2 = await c2.post("/api/login", { email: payload.email, password: payload.password });
+  assert.equal(r2.data.code, "MOBILE_NOT_VERIFIED");
+  assert.equal(r2.data.otpSent, true);
+  assert.equal(smsCount(), before + 1);
+  assert.equal((await c2.get("/api/otp/status")).data.active, true);          // the OTP screen opens with a code waiting
+
+  // 3) a wrong password gets none of this: no OTP session, no text, and it counts as a failed attempt
+  const c3 = client(s.base);
+  const bad = await c3.post("/api/login", { email: payload.email, password: "Wrong!Password11" });
+  assert.equal(bad.status, 401);
+  assert.equal(bad.data.attemptsLeft, 2);
+  assert.equal(smsCount(), before + 1);
+  assert.equal((await c3.get("/api/otp/status")).status, 401);
+
+  // 4) entering the code finishes verification, and then signing in works
+  assert.equal((await c2.post("/api/otp/verify", { code: lastOtp(s.outbox) })).status, 200);
+  const done = await c2.post("/api/login", { email: payload.email, password: payload.password });
+  assert.equal(done.status, 200);
   await s.close();
 });
 

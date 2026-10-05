@@ -4,7 +4,8 @@
    Requirement map
      1b  security ........ HTTPS enforcement, Argon2id, rate limit, CSRF
      2   verification .... email link (24 h) + SMS OTP (6 digits, 5 min, 3 tries, resend after 60 s)
-     3   login ........... generic errors, lock after 3 failures, unlock email + 2-minute cooling period
+     3   login ........... "not registered" and "unverified" notices, generic wrong-password error, lock after 3 failures,
+                           OTP step texted at sign-in for an unverified phone, unlock email + 2-minute cooling period
      4   database ........ schema.sql (users / addresses / verification_tokens + sessions) - PostgreSQL
      5   landing page .... /api/me, /api/accounts (used by the modal), logout
    ========================================================= */
@@ -57,8 +58,6 @@ export async function createApp({ config, db, mailer, sms, outbox, postal: posta
 
   const argonOptions = { type: argon2.argon2id, memoryCost: config.argon2.memoryCost, timeCost: config.argon2.timeCost, parallelism: config.argon2.parallelism };
   const hashPassword = (pw) => argon2.hash(pw, argonOptions);
-  // Verified when the email doesn't exist, so response time doesn't reveal which emails are registered
-  const dummyHash = await hashPassword(crypto.randomBytes(16).toString("hex"));
 
   /* ---------- prepared statements ---------- */
   const q = {
@@ -555,24 +554,15 @@ async function sendOtp(user) {
   });
 
   /* ---------- login (section 3) ---------- */
-  // Failed attempts for emails that are NOT registered are counted too, so the
-  // "account locked" answer looks identical for real and unknown emails.
-  const shadow = new Map();
-  const shadowLocked = (email) => (shadow.get(email)?.until || 0) > Date.now();
-  // Returns how many attempts are left. There is deliberately no time-based reset: a real
-  // account's failure counter only resets on a successful sign-in or an unlock, and this has
-  // to count the same way - otherwise the "attempts left" message would behave differently
-  // for unregistered emails and give away which ones are registered.
-  function shadowFail(email) {
-    const now = Date.now();
-    const s = shadow.get(email) || { count: 0, until: 0, last: 0 };
-    s.count += 1;
-    s.last = now;
-    if (s.count >= config.login.maxFailures) s.until = now + 30 * 60 * 1000;
-    shadow.set(email, s);
-    if (shadow.size > 5000) for (const [k, v] of shadow) if (now - v.last > 30 * 60 * 1000) shadow.delete(k);
-    return Math.max(0, config.login.maxFailures - s.count);
-  }
+  // What sign-in says when it can't go on. An email with no account is told so (and pointed at registration), and an email
+  // that isn't verified yet is told what to do. Both are deliberate: they help people who mistyped an address or never
+  // finished signing up, but they do let anyone find out whether an email is registered, which requirement 3.b.iv
+  // ("generic error messages ... to prevent user enumeration attacks") asks to avoid; the sign-in rate limit is what holds
+  // mass probing back. Neither counts as a failed attempt: there is no account to lock, or nothing to guess yet.
+  const NOT_REGISTERED_MESSAGE = "This email is not yet registered on this website; register now to log in.";
+  const UNVERIFIED_MESSAGE = "This email hasn't been verified yet. Please check your email and click the verification link we sent you, then enter the OTP we send to your mobile number to complete verification.";
+  const MOBILE_PENDING_MESSAGE = "Your email is verified. Enter the OTP we sent to your mobile number to finish verifying your account.";
+  const notRegisteredReply = (res) => res.status(404).json({ code: "EMAIL_NOT_REGISTERED", message: NOT_REGISTERED_MESSAGE });
   const lockedReply = (res) => res.status(423).json({
     code: "ACCOUNT_LOCKED",
     message: `Your account is locked after ${config.login.maxFailures} failed attempts in a row. We sent an unlock link to your registered email. It works after a ${waitLabel(config.login.unlockCooldownMs)} waiting period.`,
@@ -587,12 +577,7 @@ async function sendOtp(user) {
     if (validateLoginEmail(email) || !password || password.length > 1024) return res.status(400).json({ code: "BAD_REQUEST", message: "Enter your email and password." });
 
     const user = await q.userByEmail.get(email);
-    if (!user) {
-      if (shadowLocked(email)) return lockedReply(res);
-      await argon2.verify(dummyHash, password).catch(() => false);
-      const left = shadowFail(email);
-      return left === 0 ? lockedReply(res) : invalidReply(res, left);
-    }
+    if (!user) return notRegisteredReply(res);
 
     // step 3: is the account locked?
     if (user.is_locked) {
@@ -600,6 +585,10 @@ async function sendOtp(user) {
       if (!open) await lockUser(user); // the old link expired: send a fresh one
       return lockedReply(res);
     }
+
+    // step 4: is the email verified? Checked before the password, in the order the requirements list it. Not counted as a
+    // failed attempt, so nobody can lock an account that hasn't even been verified yet.
+    if (!user.email_verified_at) return res.status(403).json({ code: "EMAIL_NOT_VERIFIED", message: UNVERIFIED_MESSAGE });
 
     // step 5: compare the password hash
     const ok = await argon2.verify(user.password_hash, password).catch(() => false);
@@ -618,11 +607,24 @@ async function sendOtp(user) {
     const cleared = await db.prepare("UPDATE users SET failed_login_attempts = 0, updated_at = ? WHERE id = ? AND is_locked = FALSE RETURNING id").get(nowIso(), user.id);
     if (!cleared) return lockedReply(res);
 
-    // step 4: verified + active. Checked after the password so status is only ever shown to the real owner.
-    if (!user.email_verified_at) return res.status(403).json({ code: "EMAIL_NOT_VERIFIED", message: "Please verify your email address first. Check your inbox for the verification link." });
     if (!user.mobile_verified) {
+      // Email verified but the phone isn't: open the OTP step. Needs the correct password, because this hands out the
+      // OTP-entry session and sends an SMS to the owner's phone. A code is texted now (unless one is already active, or the
+      // resend / lockout rules say wait) so the screen they land on already has one waiting. If texting fails they can
+      // still press "Send code" there.
       setOnboarding(req, res, user.id);
-      return res.status(403).json({ code: "MOBILE_NOT_VERIFIED", message: "Please verify your mobile number to finish setting up your account." });
+      let otpSent = false;
+      if (!otpSending.has(user.id)) {
+        otpSending.add(user.id);
+        try {
+          if (!(await otpState(user)).active) otpSent = !(await sendOtp(user)).error;
+        } catch (err) {
+          console.error("Could not text the OTP at sign-in:", err.message);
+        } finally {
+          otpSending.delete(user.id);
+        }
+      }
+      return res.status(403).json({ code: "MOBILE_NOT_VERIFIED", message: MOBILE_PENDING_MESSAGE, otpSent });
     }
 
     await createSession(req, res, user); // step 8
