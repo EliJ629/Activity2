@@ -10,7 +10,7 @@ import { checkEmailDomain } from "../utils/emailApi.js";
 import { getCountry } from "../../shared/countries.js";
 import {
   NAME_MAX_LENGTH, validateEmail, emailDomain, validateRegistration, normalizeEmail, cleanMobileInput,
-  formatZipRanges, normalizeZip,
+  normalizeZip,
 } from "../../shared/validation.js";
 
 const EMPTY_FORM = {
@@ -66,7 +66,7 @@ export function RegistrationForm() {
   const [revealPasswords, setRevealPasswords] = useState(false);
   const [domainCheck, setDomainCheck] = useState({ domain: "", status: "" }); // "checking" | "valid" | "invalid" | "error"
   const [emailCheck, setEmailCheck] = useState({ email: "", status: "" }); // "available" | "taken"
-  const [phZips, setPhZips] = useState({ cityCode: "", zip: "", city: "", zips: null, valid: null, message: "" }); // what the server says about the chosen Philippine city and ZIP
+  const [phZips, setPhZips] = useState({ cityCode: "", zip: "", city: "", zips: null, valid: null, message: "", loading: false }); // what the server says about the chosen Philippine city and ZIP
 
   // Check the email domain through the DNS API, 500 ms after the user stops typing
   useEffect(() => {
@@ -104,24 +104,26 @@ export function RegistrationForm() {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [form.email]);
 
-  // Philippines: ask the server (which asks the ZIP API) about the chosen city and the ZIP typed so far, a moment after the
-  // user stops typing. It returns the city's postal codes for the hint and, once the ZIP is 4 digits, whether that ZIP
-  // belongs to the city - the same check registration uses, so the form and the server always agree. If the lookup
-  // fails nothing is blocked here: the server checks again on submit.
+  // Philippines: when a city is chosen, ask the server (which asks the ZIP API) for that city's postal codes - they fill the
+  // ZIP dropdown. A ZIP typed because the list couldn't load is checked the same way, a moment after the user stops typing,
+  // so the form and the server always agree. If the lookup fails nothing is blocked here: the field falls back to typing
+  // and the server checks again on submit.
   const zipToCheck = /^\d{4}$/.test(normalizeZip(form.address.zip)) ? normalizeZip(form.address.zip) : "";
   useEffect(() => {
     const cityCode = form.address.countryCode === "PH" ? form.address.city : "";
-    const empty = { cityCode: "", zip: "", city: "", zips: null, valid: null, message: "" };
+    const none = { cityCode: "", zip: "", city: "", zips: null, valid: null, message: "", loading: false };
     if (!cityCode) {
-      setPhZips(empty);
+      setPhZips(none);
       return undefined;
     }
     let cancelled = false;
+    // a different city: its list is loading until the server answers (the dropdown says "Loading...")
+    setPhZips((p) => (p.cityCode === cityCode ? p : { ...none, cityCode, loading: true }));
     const timer = setTimeout(() => {
       api(`/ph-postal?cityCode=${encodeURIComponent(cityCode)}${zipToCheck ? `&zip=${zipToCheck}` : ""}`)
-        .then((r) => { if (!cancelled) setPhZips({ cityCode, zip: zipToCheck, city: r.city, zips: r.zips, valid: r.valid ?? null, message: r.message || "" }); })
-        .catch(() => { if (!cancelled) setPhZips(empty); });
-    }, 400);
+        .then((r) => { if (!cancelled) setPhZips({ cityCode, zip: zipToCheck, city: r.city, zips: r.zips, valid: r.valid ?? null, message: r.message || "", loading: false }); })
+        .catch(() => { if (!cancelled) setPhZips({ ...none, cityCode }); });
+    }, zipToCheck ? 400 : 0);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [form.address.countryCode, form.address.city, zipToCheck]);
 
@@ -135,6 +137,8 @@ export function RegistrationForm() {
   const emailChecked = emailCheck.email === normalizeEmail(form.email) ? emailCheck.status : "";
   if (!allErrors.email && emailChecked === "taken") allErrors.email = "An account with this email already exists.";
   const phReady = form.address.countryCode === "PH" && phZips.zips && phZips.cityCode === form.address.city;
+  // the list is "loading" from the moment a city is picked until the server has answered for that city
+  const zipLoading = form.address.countryCode === "PH" && Boolean(form.address.city) && (phZips.cityCode !== form.address.city || phZips.loading);
   if (!allErrors.zip && phReady && zipToCheck && phZips.zip === zipToCheck && phZips.valid === false) allErrors.zip = phZips.message;
   const merged = { ...allErrors, ...serverErrors };
   const errors = Object.fromEntries(Object.entries(merged).filter(([k]) => touched[k] || serverErrors[k]));
@@ -242,7 +246,7 @@ const set = (key, keys = [key]) => (eOrVal) => {
           onChange={set("mobile")} onBlur={firstBlur("mobile")} error={errors.mobile} />
 
         <AddressFields value={form.address} onChange={setAddress} onTouch={touch} errors={errors}
-          zipHint={phReady ? `Postal codes for ${phZips.city}: ${formatZipRanges(phZips.zips)}` : ""} />
+          zipOptions={phReady && !zipLoading ? phZips.zips : null} zipLoading={zipLoading} />
       </div>
 
       <button type="submit" className="btn btn--primary btn--block" disabled={submitting}>

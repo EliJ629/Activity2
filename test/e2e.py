@@ -153,13 +153,12 @@ def main():
             page.select_option("#city", "137501000")
             expect(page.locator("#barangay")).to_be_enabled()
             page.select_option("#barangay", "137501176")
-            page.fill("#zip", "14000"); page.locator("#zip").blur()
-            expect(page.get_by_text("doesn't match the format")).to_be_visible()
-            # a real ZIP, but Quezon City's: the city's own codes are listed and the form refuses it
-            page.fill("#zip", "1100"); page.locator("#zip").blur()
-            expect(page.get_by_text("isn't a postal code for Caloocan City")).to_be_visible()
-            page.fill("#zip", "1400")
-            expect(page.get_by_text("isn't a postal code")).to_have_count(0)
+            # the ZIP field is a dropdown of the chosen city's own codes: Caloocan's are offered, Quezon City's are not
+            expect(page.locator("select#zip")).to_be_enabled()
+            expect(page.locator("#zip option[value='1400']")).to_have_count(1)
+            expect(page.locator("#zip option[value='1100']")).to_have_count(0)
+            page.select_option("#zip", "1400")
+            expect(page.locator("#zip")).to_have_value("1400")
             shot(page, "02-register-mobile-filled")
 
             page.get_by_role("button", name="Create account").click()

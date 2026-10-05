@@ -55,6 +55,29 @@ function ApiSelect({ id, label, placeholder, value, options, disabled, onSelect,
   );
 }
 
+// The ZIP dropdown: only the codes of the chosen city (Philippines)
+function ZipSelect({ id, label, value, options, loading, disabled, placeholder, onChange, onBlur, error }) {
+  return (
+    <div className="field">
+      <label className="field__label" htmlFor={id}>{label}</label>
+      <select
+        id={id}
+        className={`field__select${loading ? " field__select--loading" : ""}`}
+        value={value}
+        disabled={disabled || loading}
+        autoComplete="postal-code"
+        aria-invalid={error ? "true" : undefined}
+        onBlur={onBlur}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">{loading ? "Loading..." : placeholder}</option>
+        {options.map((z) => <option key={z} value={z}>{z}</option>)}
+      </select>
+      {error && <p className="field__error">{error}</p>}
+    </div>
+  );
+}
+
 function PlainField({ id, label, value, onChange, onBlur, error, placeholder, maxLength, autoComplete, hint }) {
   return (
     <div className="field">
@@ -78,7 +101,7 @@ function PlainField({ id, label, value, onChange, onBlur, error, placeholder, ma
 }
 
 // onChange(nextValue, touchedKeys)  |  onTouch(keys)
-export function AddressFields({ value, onChange, onTouch, errors = {}, zipHint = "" }) {
+export function AddressFields({ value, onChange, onTouch, errors = {}, zipOptions = null, zipLoading = false }) {
   const isPH = value.countryCode === "PH";
   const countries = useMemo(() => listCountries(), []);
   const regions = useOptions(fetchRegions, isPH ? "all" : null);
@@ -92,9 +115,16 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipHint =
     set({ countryCode: code, region: "", regionName: "", city: "", cityName: "", barangay: "", barangayName: "", stateText: "", cityText: "", zip: "" },
       ["countryCode"]);
   // Changing a parent resets the fields below it
-  const setRegion = (r) => set({ region: r.code, regionName: r.name, city: "", cityName: "", barangay: "", barangayName: "" }, ["state"]);
-  const setCity = (c) => set({ city: c.code, cityName: c.name, barangay: "", barangayName: "" }, ["city"]);
+  // (the ZIP goes too: it was one of the old city's codes)
+  const setRegion = (r) => set({ region: r.code, regionName: r.name, city: "", cityName: "", barangay: "", barangayName: "", zip: "" }, ["state"]);
+  const setCity = (c) => set({ city: c.code, cityName: c.name, barangay: "", barangayName: "", zip: "" }, ["city"]);
   const setBarangay = (b) => set({ barangay: b.code, barangayName: b.name }, ["barangay"]);
+
+  // A city with a single ZIP: nothing to choose, so pick it
+  const onlyZip = zipOptions && zipOptions.length === 1 ? zipOptions[0] : "";
+  useEffect(() => {
+    if (isPH && onlyZip && value.zip !== onlyZip) set({ zip: onlyZip }, ["zip"]);
+  }, [isPH, onlyZip, value.zip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <fieldset className="fieldset field--full">
@@ -150,9 +180,18 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipHint =
           </>
         )}
 
-        <PlainField id="zip" label="ZIP / Postal Code" value={value.zip} maxLength={12} autoComplete="postal-code"
-          placeholder={isPH ? "e.g. 1400" : ""} hint={zipHint}
-          onChange={(v) => set({ zip: v }, ["zip"])} onBlur={() => onTouch(["zip"])} error={errors.zip} />
+        {isPH && (!value.city || zipLoading || zipOptions) ? (
+          <ZipSelect id="zip" label="ZIP / Postal Code" value={value.zip} options={zipOptions || []}
+            loading={zipLoading} disabled={!value.city}
+            placeholder={value.city ? "Select ZIP code" : "Select a city first"}
+            onChange={(v) => set({ zip: v }, ["zip"])} onBlur={() => onTouch(["zip"])} error={errors.zip} />
+        ) : (
+          // other countries, or a Philippine city whose list couldn't be loaded: type it (the server still checks it)
+          <PlainField id="zip" label="ZIP / Postal Code" value={value.zip} maxLength={12} autoComplete="postal-code"
+            placeholder={isPH ? "e.g. 1400" : ""}
+            hint={isPH ? "We couldn't load this city's postal codes. Type yours and we'll check it when you submit." : ""}
+            onChange={(v) => set({ zip: v }, ["zip"])} onBlur={() => onTouch(["zip"])} error={errors.zip} />
+        )}
       </div>
     </fieldset>
   );
