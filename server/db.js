@@ -7,8 +7,18 @@ const { Pool } = pg;
 // parse them as plain JS numbers everywhere - matches how SQLite behaved.
 pg.types.setTypeParser(20, (v) => parseInt(v, 10)); // OID 20 = int8/bigint
 
+// The schema uses the real DATE and TIMESTAMP types (section 4 of the requirements), but the app
+// handles dates as plain text: DATE comes back as "YYYY-MM-DD", and TIMESTAMP (which here always
+// holds UTC) as ISO-8601 with a Z, so Date.parse() reads it the same way on any server.
+pg.types.setTypeParser(1082, (v) => v);                            // OID 1082 = date
+pg.types.setTypeParser(1114, (v) => `${v.replace(" ", "T")}Z`);    // OID 1114 = timestamp without time zone
+
 export function openDb(connectionString) {
   const pool = new Pool({ connectionString });
+  // Postgres reports WARNINGs (such as "Schema upgrade skipped" from schema.sql) as notices, which node-pg
+  // silently drops unless something listens. Only warnings are shown: NOTICEs like "table already exists,
+  // skipping" would otherwise print on every start.
+  pool.on("connect", (client) => client.on("notice", (n) => { if (n.severity === "WARNING") console.warn(`[postgres] ${n.message}`); }));
   return {
     query: (text, params) => pool.query(text, params),
     pool,

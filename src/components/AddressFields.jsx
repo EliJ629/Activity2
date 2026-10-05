@@ -55,7 +55,7 @@ function ApiSelect({ id, label, placeholder, value, options, disabled, onSelect,
   );
 }
 
-function PlainField({ id, label, value, onChange, onBlur, error, placeholder, maxLength, autoComplete }) {
+function PlainField({ id, label, value, onChange, onBlur, error, placeholder, maxLength, autoComplete, hint }) {
   return (
     <div className="field">
       <label className="field__label" htmlFor={id}>{label}</label>
@@ -71,13 +71,14 @@ function PlainField({ id, label, value, onChange, onBlur, error, placeholder, ma
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
       />
+      {!error && hint && <span className="field__hint">{hint}</span>}
       {error && <p className="field__error">{error}</p>}
     </div>
   );
 }
 
 // onChange(nextValue, touchedKeys)  |  onTouch(keys)
-export function AddressFields({ value, onChange, onTouch, errors = {} }) {
+export function AddressFields({ value, onChange, onTouch, errors = {}, zipHint = "" }) {
   const isPH = value.countryCode === "PH";
   const countries = useMemo(() => listCountries(), []);
   const regions = useOptions(fetchRegions, isPH ? "all" : null);
@@ -150,7 +151,7 @@ export function AddressFields({ value, onChange, onTouch, errors = {} }) {
         )}
 
         <PlainField id="zip" label="ZIP / Postal Code" value={value.zip} maxLength={12} autoComplete="postal-code"
-          placeholder={isPH ? "e.g. 1400" : ""}
+          placeholder={isPH ? "e.g. 1400" : ""} hint={zipHint}
           onChange={(v) => set({ zip: v }, ["zip"])} onBlur={() => onTouch(["zip"])} error={errors.zip} />
       </div>
     </fieldset>

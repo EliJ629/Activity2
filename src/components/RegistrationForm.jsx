@@ -10,6 +10,7 @@ import { checkEmailDomain } from "../utils/emailApi.js";
 import { getCountry } from "../../shared/countries.js";
 import {
   NAME_MAX_LENGTH, validateEmail, emailDomain, validateRegistration, normalizeEmail, cleanMobileInput,
+  formatZipRanges, normalizeZip,
 } from "../../shared/validation.js";
 
 const EMPTY_FORM = {
@@ -46,6 +47,7 @@ function toPayload(form) {
       countryCode: a.countryCode,
       state: ph ? a.regionName : a.stateText,
       city: ph ? a.cityName : a.cityText,
+      cityCode: ph ? a.city : "", // the PSGC code of the chosen city: the server uses it to check the ZIP
       barangay: ph ? a.barangayName : "",
       zip: a.zip,
     },
@@ -64,6 +66,7 @@ export function RegistrationForm() {
   const [revealPasswords, setRevealPasswords] = useState(false);
   const [domainCheck, setDomainCheck] = useState({ domain: "", status: "" }); // "checking" | "valid" | "invalid" | "error"
   const [emailCheck, setEmailCheck] = useState({ email: "", status: "" }); // "available" | "taken"
+  const [phZips, setPhZips] = useState({ cityCode: "", zip: "", city: "", zips: null, valid: null, message: "" }); // what the server says about the chosen Philippine city and ZIP
 
   // Check the email domain through the DNS API, 500 ms after the user stops typing
   useEffect(() => {
@@ -101,6 +104,27 @@ export function RegistrationForm() {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [form.email]);
 
+  // Philippines: ask the server (which asks the ZIP API) about the chosen city and the ZIP typed so far, a moment after the
+  // user stops typing. It returns the city's postal codes for the hint and, once the ZIP is 4 digits, whether that ZIP
+  // belongs to the city - the same check registration uses, so the form and the server always agree. If the lookup
+  // fails nothing is blocked here: the server checks again on submit.
+  const zipToCheck = /^\d{4}$/.test(normalizeZip(form.address.zip)) ? normalizeZip(form.address.zip) : "";
+  useEffect(() => {
+    const cityCode = form.address.countryCode === "PH" ? form.address.city : "";
+    const empty = { cityCode: "", zip: "", city: "", zips: null, valid: null, message: "" };
+    if (!cityCode) {
+      setPhZips(empty);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api(`/ph-postal?cityCode=${encodeURIComponent(cityCode)}${zipToCheck ? `&zip=${zipToCheck}` : ""}`)
+        .then((r) => { if (!cancelled) setPhZips({ cityCode, zip: zipToCheck, city: r.city, zips: r.zips, valid: r.valid ?? null, message: r.message || "" }); })
+        .catch(() => { if (!cancelled) setPhZips(empty); });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [form.address.countryCode, form.address.city, zipToCheck]);
+
   // Validation runs live on every change
   const payload = toPayload(form);
   const countryName = getCountry(form.address.countryCode)?.name;
@@ -110,6 +134,8 @@ export function RegistrationForm() {
   }
   const emailChecked = emailCheck.email === normalizeEmail(form.email) ? emailCheck.status : "";
   if (!allErrors.email && emailChecked === "taken") allErrors.email = "An account with this email already exists.";
+  const phReady = form.address.countryCode === "PH" && phZips.zips && phZips.cityCode === form.address.city;
+  if (!allErrors.zip && phReady && zipToCheck && phZips.zip === zipToCheck && phZips.valid === false) allErrors.zip = phZips.message;
   const merged = { ...allErrors, ...serverErrors };
   const errors = Object.fromEntries(Object.entries(merged).filter(([k]) => touched[k] || serverErrors[k]));
 
@@ -215,7 +241,8 @@ const set = (key, keys = [key]) => (eOrVal) => {
         <MobileField countryCode={form.address.countryCode} value={form.mobile}
           onChange={set("mobile")} onBlur={firstBlur("mobile")} error={errors.mobile} />
 
-        <AddressFields value={form.address} onChange={setAddress} onTouch={touch} errors={errors} />
+        <AddressFields value={form.address} onChange={setAddress} onTouch={touch} errors={errors}
+          zipHint={phReady ? `Postal codes for ${phZips.city}: ${formatZipRanges(phZips.zips)}` : ""} />
       </div>
 
       <button type="submit" className="btn btn--primary btn--block" disabled={submitting}>

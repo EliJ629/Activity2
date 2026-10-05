@@ -2,7 +2,7 @@
 // Mobile number with a country-code prefix that follows the selected Country
 // dropdown (Philippines -> +63). The user types only the national number:
 // digits only, capped at the country's length (10 for the Philippines).
-import { dialCode, maxMobileDigits, cleanMobileInput } from "../../shared/validation.js";
+import { dialCode, maxMobileDigits, cleanMobileInput, allowsLeadingZero } from "../../shared/validation.js";
 import { mobileExample } from "../../shared/countries.js";
 
 export function MobileField({ countryCode, value, onChange, onBlur, error }) {
@@ -33,7 +33,7 @@ export function MobileField({ countryCode, value, onChange, onBlur, error }) {
         />
       </div>
       <span className={`field__counter${value.length >= max ? " is-full" : ""}`} data-testid="mobile-counter">{value.length} / {max}</span>
-      {!error && <span id="mobile-hint" className="field__hint">Enter the number after {prefix ? `+${prefix}` : "the country code"}. We'll text a verification code to it.</span>}
+      {!error && <span id="mobile-hint" className="field__hint">Enter the number after {prefix ? `+${prefix}` : "the country code"}{allowsLeadingZero(countryCode) ? "" : ", without a leading 0"}. We'll text a verification code to it.</span>}
       {error && <p id="mobile-error" className="field__error">{error}</p>}
     </div>
   );

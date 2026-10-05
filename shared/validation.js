@@ -87,6 +87,12 @@ export function validateBirthday(text, today = todayParts()) {
 
 /* ---------- email ---------- */
 export const EMAIL_MAX_LENGTH = 254;
+export const EMAIL_LOCAL_MAX_LENGTH = 64; // the part before the @ (RFC 5321)
+
+// Before the @: letters, digits and . _ % + - ; it can't start or end with a dot or contain two
+// dots in a row ("a..b@", ".a@" and "a.@" are not real addresses). After it: dot-separated
+// labels that don't start or end with a hyphen, ending in a 2+ letter extension.
+const EMAIL_PATTERN = /^(?!\.)(?!.*\.\.)[a-z0-9._%+-]*[a-z0-9_%+-]@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/;
 
 // Public mailbox providers only. Custom, school and corporate domains are blocked.
 // Add more providers here if you need them.
@@ -103,6 +109,25 @@ export function normalizeEmail(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+// The same mailbox can be written many ways: Gmail ignores dots and "+tag" in the part before
+// the @ ("j.uan+x@gmail.com" is "juan@gmail.com"), and the other big providers ignore "+tag".
+// This is the one form used to decide whether an email is "already registered", so a second
+// account can't be made for a mailbox that is already taken just by adding a dot or a +tag.
+// (The address is still stored and used exactly as typed.)  The SQL twin of this lives in
+// server/app.js - keep them identical; a test compares them.
+export function canonicalEmail(value) {
+  const v = normalizeEmail(value);
+  const at = v.lastIndexOf("@");
+  if (at < 1) return v;
+  let local = v.slice(0, at).split("+")[0];
+  let domain = v.slice(at + 1);
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    local = local.replace(/\./g, "");
+    domain = "gmail.com";
+  }
+  return `${local}@${domain}`;
+}
+
 export function emailDomain(value) {
   return normalizeEmail(value).split("@")[1] || "";
 }
@@ -116,7 +141,7 @@ export function validateEmail(value) {
   const v = normalizeEmail(value);
   if (!v) return "Email is required.";
   if (v.length > EMAIL_MAX_LENGTH) return "Email is too long.";
-  if (!/^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(v)) return "Enter a valid email address (e.g. juan@gmail.com).";
+  if (!EMAIL_PATTERN.test(v) || v.split("@")[0].length > EMAIL_LOCAL_MAX_LENGTH) return "Enter a valid email address (e.g. juan@gmail.com).";
   if (!isPublicEmailDomain(emailDomain(v))) return "Use a public email provider such as Gmail, Outlook, Yahoo or iCloud. Custom and company domains aren't accepted.";
   return "";
 }
@@ -204,6 +229,19 @@ function countryHasPostalFormat(countryCode) {
   return postalCodes.validate(countryCode, "@@@@@@@@") !== true;
 }
 
+// ["1400","1402","1403","1406"] -> "1400, 1402-1403, 1406": runs of consecutive codes are shown as a range
+export function formatZipRanges(zips) {
+  const nums = [...new Set((zips || []).map(Number).filter(Number.isInteger))].sort((a, b) => a - b);
+  const out = [];
+  for (let i = 0; i < nums.length; i++) {
+    let j = i;
+    while (nums[j + 1] === nums[j] + 1) j++;
+    out.push(j === i ? String(nums[i]).padStart(4, "0") : `${String(nums[i]).padStart(4, "0")}-${String(nums[j]).padStart(4, "0")}`);
+    i = j;
+  }
+  return out.join(", ");
+}
+
 export function validateZip(countryCode, value) {
   const v = normalizeZip(value);
   if (!v) return "ZIP / postal code is required.";
@@ -217,6 +255,15 @@ export function validateZip(countryCode, value) {
 export function dialCode(countryCode) {
   try { return getCountryCallingCode(countryCode); } catch { return ""; }
 }
+
+// Countries where a valid MOBILE number really does start with 0 after the country code:
+// Burkina Faso, Benin, Congo, Cote d'Ivoire, Gabon and Tajikistan. Found by asking the phone
+// library for valid mobile numbers beginning with 0 in all 245 countries, with two different
+// search methods; a test repeats the search so this list can't quietly go stale. Everywhere
+// else (the Philippines included) a leading 0 is just the local "trunk" habit and isn't part
+// of the number, so it is not accepted.
+const ZERO_START_MOBILE_COUNTRIES = new Set(["BF", "BJ", "CG", "CI", "GA", "TJ"]);
+export const allowsLeadingZero = (countryCode) => ZERO_START_MOBILE_COUNTRIES.has(countryCode);
 
 // How many digits the mobile input accepts after the +prefix. The Philippines
 // is exactly 10 (the requirements document's own example: "10 digits following
@@ -240,37 +287,35 @@ export function maxMobileDigits(countryCode) {
   return result;
 }
 
-// Turns whatever was typed or pasted into digits only, capped to the country's
-// limit. A number pasted with its country code ("+63 917 123 4567") has the
-// code dropped, since it is already shown as the prefix. For the Philippines a
-// leading 0 (09171234567) is dropped too, because it is never written after +63.
+// Turns whatever was typed or pasted into digits only, capped to the country's limit. A number
+// pasted with its country code ("+63 917 123 4567") has the code dropped, since it is already
+// shown as the prefix. A leading 0 is dropped as it is typed, except in the few countries above
+// where mobile numbers start with 0.
 export function cleanMobileInput(raw, countryCode) {
-  let digits = String(raw ?? "").replace(/\D/g, "");
+  const strip = (d) => (allowsLeadingZero(countryCode) ? d : d.replace(/^0+/, ""));
+  let digits = strip(String(raw ?? "").replace(/\D/g, ""));
   const dial = dialCode(countryCode);
   const max = maxMobileDigits(countryCode);
-  if (dial && digits.length > max && digits.startsWith(dial)) digits = digits.slice(dial.length);
-  if (countryCode === "PH") digits = digits.replace(/^0+/, "");
-  // Elsewhere a leading 0 is usually a trunk prefix the validator accepts, so it gets one extra digit
-  const limit = countryCode !== "PH" && digits.startsWith("0") ? max + 1 : max;
-  return digits.slice(0, limit);
+  if (dial && digits.length > max && digits.startsWith(dial)) digits = strip(digits.slice(dial.length));
+  return digits.slice(0, max);
 }
 
-// `national` is what the user typed after the +prefix. A leading 0 (the local
-// "trunk" prefix, e.g. 0917...) is accepted and removed. The number must be a
-// valid MOBILE number in the selected country's national numbering plan
-// (Philippines: 10 digits after +63, starting with 9).
+// `national` is what the user typed after the +prefix. It must be a valid MOBILE number in the
+// selected country's national numbering plan (Philippines: 10 digits after +63, starting with 9)
+// and must not start with 0, except in the countries whose mobile numbers do.
 export function validateMobile(countryCode, national, countryLabel = "the selected country") {
   const raw = String(national ?? "").trim();
   if (!raw) return { error: "Mobile number is required.", e164: "" };
   if (!countryCode || !dialCode(countryCode)) return { error: "Select a country first.", e164: "" };
   if (!/^[\d\s\-().]+$/.test(raw)) return { error: "Mobile number may contain digits only.", e164: "" };
   const digits = raw.replace(/\D/g, "");
-  const candidates = digits.startsWith("0") ? [digits, digits.replace(/^0+/, "")] : [digits];
-  for (const c of candidates) {
-    if (!c) continue;
-    const parsed = parsePhoneNumberFromString(`+${dialCode(countryCode)}${c}`);
-    if (parsed && parsed.isValid()) return { error: "", e164: parsed.number };
+  if (digits.startsWith("0") && !allowsLeadingZero(countryCode)) {
+    return { error: countryCode === "PH"
+      ? "Don't start with 0 - +63 already replaces it. Enter 10 digits (e.g. 917 123 4567)."
+      : `Don't start the number with 0 - the +${dialCode(countryCode)} prefix already replaces it.`, e164: "" };
   }
+  const parsed = parsePhoneNumberFromString(`+${dialCode(countryCode)}${digits}`);
+  if (parsed && parsed.isValid()) return { error: "", e164: parsed.number };
   const hint = countryCode === "PH" ? "Enter 10 digits after +63 (e.g. 917 123 4567)." : `Enter a valid mobile number for ${countryLabel}.`;
   return { error: hint, e164: "" };
 }

@@ -71,11 +71,12 @@ test("mobile: prefix follows the country and the number follows its numbering pl
   assert.equal(v.dialCode("US"), "1");
   assert.equal(v.dialCode("GB"), "44");
   assert.equal(v.validateMobile("PH", "917 123 4567").e164, "+639171234567");
-  assert.equal(v.validateMobile("PH", "0917-123-4567").e164, "+639171234567");   // leading trunk 0 is accepted
+  assert.match(v.validateMobile("PH", "0917-123-4567").error, /Don't start with 0/);   // a leading 0 is not part of a +63 number
   assert.equal(v.validateMobile("PH", "9171234567").e164, "+639171234567");
   for (const bad of ["", "917123456", "91712345678", "2171234567", "abc", "+639171234567"]) assert.notEqual(v.validateMobile("PH", bad).error, "", bad);
   assert.equal(v.validateMobile("US", "(202) 555-0123").e164, "+12025550123");
-  assert.equal(v.validateMobile("GB", "07911 123456").e164, "+447911123456");
+  assert.equal(v.validateMobile("GB", "7911 123456").e164, "+447911123456");
+  assert.match(v.validateMobile("GB", "07911 123456").error, /Don't start the number with 0/);
   assert.notEqual(v.validateMobile("US", "917 123 4567").error, "");            // a PH number is not a US number
 });
 
@@ -101,9 +102,63 @@ test("mobile input: digits only, capped at 10 for the Philippines", () => {
 test("mobile input: other countries use their own limit, not a flat 10", () => {
   assert.equal(v.maxMobileDigits("US"), 10);
   assert.equal(v.cleanMobileInput("(415) 555-2671 9", "US"), "4155552671");
-  // a trunk-prefix 0 gets one extra digit, since the validator accepts it (UK: 07400 123456)
-  assert.equal(v.cleanMobileInput("07400 123456", "GB"), "07400123456");
+  // the local trunk 0 is dropped as it is typed (UK: 07400 123456 -> 7400123456) and the result is valid
+  assert.equal(v.cleanMobileInput("07400 123456", "GB"), "7400123456");
   assert.equal(v.validateMobile("GB", v.cleanMobileInput("07400 123456", "GB")).error, "");
   // a country with longer numbers is not cut off at 10
   assert.ok(v.maxMobileDigits("DE") > 10);
+});
+
+test("mobile: a leading 0 is refused everywhere except the countries whose mobile numbers start with 0", () => {
+  assert.deepEqual(["BF", "BJ", "CG", "CI", "GA", "TJ"].filter(v.allowsLeadingZero), ["BF", "BJ", "CG", "CI", "GA", "TJ"]);
+  for (const c of ["PH", "US", "GB", "DE", "IN", "AU", "FR", "SG", "JP"]) assert.equal(v.allowsLeadingZero(c), false, c);
+  // typed or pasted: removed for the Philippines, kept for Cote d'Ivoire where the 0 is part of the number
+  for (const typed of ["0917 123 4567", "00917 123 4567", "+63 (0)917 123 4567", "0063 917 123 4567"]) assert.equal(v.cleanMobileInput(typed, "PH"), "9171234567", typed);
+  assert.equal(v.cleanMobileInput("0100234567", "CI"), "0100234567");
+  assert.equal(v.validateMobile("CI", "0100234567").e164, "+2250100234567");
+  assert.match(v.validateMobile("PH", "09171234567").error, /Don't start with 0/);   // what the server says if a client skips the browser's cleaning
+  assert.equal(v.validateMobile("PH", "9171234567").error, "");
+});
+
+test("mobile: the list of countries that allow a leading 0 matches the phone library's own data", async () => {
+  // Searches every country for a valid MOBILE number starting with 0, so the hard-coded list can't quietly go stale
+  // when the phone library is updated. (If this fails, update ZERO_START_MOBILE_COUNTRIES in shared/validation.js.)
+  const { parsePhoneNumberFromString, getCountries, getCountryCallingCode } = await import("libphonenumber-js/mobile");
+  const filler = "2345678901234";
+  const found = [];
+  for (const c of getCountries()) {
+    const dial = getCountryCallingCode(c);
+    let hit = false;
+    for (let len = 5; len <= Math.min(14, 15 - dial.length) && !hit; len++) {
+      for (let a = 0; a < 10 && !hit; a++) for (let b = 0; b < 10 && !hit; b++) {
+        const national = `0${a}${b}${filler}`.slice(0, len);
+        const p = parsePhoneNumberFromString(`+${dial}${national}`, c);
+        hit = Boolean(p && p.country === c && p.isValid() && p.nationalNumber.startsWith("0"));
+      }
+    }
+    if (hit) found.push(c);
+  }
+  assert.deepEqual(found.sort(), getCountries().filter(v.allowsLeadingZero).sort());
+});
+
+test("email: shapes that can't be real addresses are refused, ordinary ones pass", () => {
+  for (const bad of ["a..b@gmail.com", ".a@gmail.com", "a.@gmail.com", "a@gmail..com", "a@-gmail.com", "a@gmail-.com", "a@gmail.c", `${"x".repeat(65)}@gmail.com`, "a b@gmail.com", "a@@gmail.com"]) {
+    assert.notEqual(v.validateEmail(bad), "", bad);
+  }
+  for (const good of ["juan@gmail.com", "ju.an@gmail.com", "ju.an+news@gmail.com", "j_u%an-1@yahoo.com", `${"x".repeat(64)}@gmail.com`, "JUAN@GMAIL.COM"]) {
+    assert.equal(v.validateEmail(good), "", good);
+  }
+});
+
+test("email: the same mailbox written differently has one canonical form", () => {
+  assert.equal(v.canonicalEmail("J.U.A.N+news@Gmail.com"), "juan@gmail.com");
+  assert.equal(v.canonicalEmail("juan@googlemail.com"), "juan@gmail.com");
+  assert.equal(v.canonicalEmail("ju.an+x@outlook.com"), "ju.an@outlook.com");   // dots only count as nothing at Gmail
+  assert.notEqual(v.canonicalEmail("ju.an@outlook.com"), v.canonicalEmail("juan@outlook.com"));
+});
+
+test("zip codes are shown as ranges", () => {
+  assert.equal(v.formatZipRanges(["1400", "1402", "1403", "1406", "1407", "1408", "1425"]), "1400, 1402-1403, 1406-1408, 1425");
+  assert.equal(v.formatZipRanges(["0802", "1100"]), "0802, 1100");
+  assert.equal(v.formatZipRanges([]), "");
 });

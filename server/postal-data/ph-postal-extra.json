@@ -1,0 +1,3 @@
+{
+  "_about": "Optional hand-made additions, kept apart so re-running scripts/build-ph-postal.mjs never erases them. A ZIP listed here is ALWAYS accepted for that city, whatever the ZIP API says, so use it for a real ZIP the API's 2019 snapshot lacks. Key = the city's 6-digit key (first 6 digits of its PSGC code; Manila is 133900). Value = extra 4-digit ZIPs. Example: { \"137501\": [\"1422\"] } adds 1422 to Caloocan City."
+}

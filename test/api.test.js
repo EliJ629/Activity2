@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { startServer, client, goodPayload, lastLink, lastOtp, sleep } from "./helpers.js";
+import { startServer, client, goodPayload, lastLink, lastOtp, sleep, insertVerifiedUser } from "./helpers.js";
+import { canonicalEmail } from "../shared/validation.js";
+import { createPostalService } from "../server/postal.js";
+import { makeFakeZipApi } from "./fakeZipApi.js";
 
 async function registerAndVerify(s, over = {}, { mobile = true } = {}) {
   const c = client(s.base);
@@ -83,7 +86,7 @@ test("register -> password is stored as Argon2id; an unverified duplicate is rep
   await s.close();
 });
 
-test("an unverified account cannot sign in; a wrong password gets the generic message, an unregistered email is told so", async () => {
+test("an unverified account cannot sign in; wrong password stays generic", async () => {
   const s = await startServer();
   const c = client(s.base);
   const p = goodPayload();
@@ -94,10 +97,9 @@ test("an unverified account cannot sign in; a wrong password gets the generic me
   const bad = await c.post("/api/login", { email: p.email, password: "Wrong!Password1" });
   const unknown = await c.post("/api/login", { email: "nobody@gmail.com", password: "Wrong!Password1" });
   assert.equal(bad.status, 401);
-  assert.equal(bad.data.message, "Invalid email or password.");   // a real account with a wrong password stays generic
-  assert.equal(unknown.status, 404);
-  assert.equal(unknown.data.code, "EMAIL_NOT_REGISTERED");
-  assert.equal(unknown.data.message, "This email is not yet registered on this website.");
+  assert.equal(unknown.status, 401);
+  assert.equal(bad.data.message, unknown.data.message);
+  assert.equal(bad.data.message, "Invalid email or password.");
   await s.close();
 });
 
@@ -254,20 +256,38 @@ test("a successful login resets the failure counter (only consecutive failures c
   await s.close();
 });
 
-test("an unregistered email is told so - no attempt count, no lock - and registering it later starts clean", async () => {
+test("unknown emails get the same 'locked' answer (no user enumeration)", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  const r = [];
+  for (let i = 0; i < 3; i++) r.push(await c.post("/api/login", { email: "ghost@gmail.com", password: "Whatever!123" }));
+  assert.deepEqual(r.map((x) => x.status), [401, 401, 423]);
+  await s.close();
+});
+
+test("login: unknown emails get exactly the same answers as real ones, step by step (no user enumeration)", async () => {
+  const s = await startServer();
+  const { c, payload } = await registerAndVerify(s);
+  const bad = (email) => c.post("/api/login", { email, password: "Bad!Password111" });
+  const real = [await bad(payload.email), await bad(payload.email), await bad(payload.email)];
+  const ghost = "nobody.registered@gmail.com";
+  const unknown = [await bad(ghost), await bad(ghost), await bad(ghost)];
+  for (let i = 0; i < 3; i++) {
+    assert.equal(unknown[i].status, real[i].status, `attempt ${i + 1}`);
+    assert.equal(unknown[i].data.code, real[i].data.code);
+    assert.equal(unknown[i].data.message, real[i].data.message);
+    assert.equal(unknown[i].data.attemptsLeft, real[i].data.attemptsLeft);
+  }
+  assert.deepEqual(real.map((r) => r.status), [401, 401, 423]);
+  assert.equal(real[0].data.message, "Invalid email or password.");
+  await s.close();
+});
+
+test("an email that was tried before it existed starts with all its attempts once it registers", async () => {
   const s = await startServer();
   const c = client(s.base);
   const ghost = "ghost.notyet@gmail.com";
-  // well past the lock threshold of 3: nothing is counted and nothing locks, there is no account
-  for (let i = 0; i < 6; i++) {
-    const r = await c.post("/api/login", { email: ghost, password: "Whatever!123" });
-    assert.equal(r.status, 404);
-    assert.equal(r.data.code, "EMAIL_NOT_REGISTERED");
-    assert.equal(r.data.message, "This email is not yet registered on this website.");
-    assert.equal(r.data.attemptsLeft, undefined);
-    assert.doesNotMatch(r.data.message, /lock/i);
-  }
-  // once that email really registers, the earlier tries must not count against it
+  for (let i = 0; i < 6; i++) await c.post("/api/login", { email: ghost, password: "Whatever!123" });
   const { c: c2, payload } = await registerAndVerify(s, { email: ghost });
   const first = await c2.post("/api/login", { email: payload.email, password: "Bad!Password111" });
   assert.equal(first.status, 401);
@@ -317,5 +337,209 @@ test("security headers are set", async () => {
   assert.equal(r.headers.get("x-content-type-options"), "nosniff");
   assert.equal(r.headers.get("cache-control"), "no-store");
   assert.equal(r.headers.get("x-powered-by"), null);
+  await s.close();
+});
+
+
+/* ================= Philippine ZIP, mobile, email shape ================= */
+
+test("registration: a Philippine ZIP must belong to the chosen city", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  const addr = goodPayload().address;
+  const wrongZip = await c.post("/api/register", goodPayload({ address: { ...addr, zip: "1100" } })); // a Quezon City ZIP
+  assert.equal(wrongZip.status, 422);
+  assert.match(wrongZip.data.errors.zip, /1100 isn't a postal code for Caloocan City/);
+  const forged = await c.post("/api/register", goodPayload({ address: { ...addr, cityCode: "137404000" } })); // Quezon City's code, Caloocan's name
+  assert.equal(forged.status, 422);
+  assert.match(forged.data.errors.city, /doesn't match/);
+  const noCode = await c.post("/api/register", goodPayload({ address: { ...addr, cityCode: "" } }));
+  assert.equal(noCode.status, 422);
+  assert.match(noCode.data.errors.city, /Choose your city/);
+  const rows = await s.db.prepare("SELECT count(*) AS n FROM users").get();
+  assert.equal(rows.n, 0);                                                         // none of those created an account
+  assert.equal((await c.post("/api/register", goodPayload())).status, 201);       // the right ZIP for the right city does
+  await s.close();
+});
+
+test("the form can ask which ZIPs a Philippine city has, and whether one it typed belongs", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  const ok = await c.get("/api/ph-postal?cityCode=137501000");
+  assert.equal(ok.status, 200);
+  assert.equal(ok.data.city, "Caloocan City");
+  assert.equal(ok.data.source, "api");
+  assert.ok(ok.data.zips.includes("1400") && !ok.data.zips.includes("1100"));
+  assert.equal(ok.data.valid, undefined);                                   // no ZIP given, nothing to judge
+  const good = await c.get("/api/ph-postal?cityCode=137501000&zip=1400");
+  assert.equal(good.data.valid, true);
+  const bad = await c.get("/api/ph-postal?cityCode=137501000&zip=1100");   // the same check registration uses
+  assert.equal(bad.data.valid, false);
+  assert.match(bad.data.message, /1100 isn't a postal code for Caloocan City\. It belongs to Quezon City\./);
+  assert.equal((await c.get("/api/ph-postal?cityCode=999999999")).status, 404);
+  assert.equal((await c.get("/api/ph-postal")).status, 404);
+  await s.close();
+});
+
+test("registration still checks the ZIP against the city when the ZIP API is down (the table answers)", async () => {
+  const offline = createPostalService({ fetchImpl: makeFakeZipApi({ mode: "down" }).fetchImpl, extras: {} });
+  const s = await startServer({}, { postal: offline });
+  const c = client(s.base);
+  const addr = goodPayload().address;
+  const wrong = await c.post("/api/register", goodPayload({ address: { ...addr, zip: "1100" } }));
+  assert.equal(wrong.status, 422);
+  assert.match(wrong.data.errors.zip, /1100 isn't a postal code for Caloocan City/);
+  assert.equal((await c.post("/api/register", goodPayload())).status, 201);
+  const lookup = await c.get("/api/ph-postal?cityCode=137501000&zip=1100");
+  assert.equal(lookup.data.source, "table");
+  assert.equal(lookup.data.valid, false);
+  await s.close();
+});
+
+test("registration: a leading 0 on a +63 mobile number and badly shaped emails are refused by the server too", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  const zero = await c.post("/api/register", goodPayload({ mobile: "09171234567" }));
+  assert.equal(zero.status, 422);
+  assert.match(zero.data.errors.mobile, /Don't start with 0/);
+  for (const email of ["a..b@gmail.com", ".a@gmail.com", "a.@gmail.com", `${"x".repeat(65)}@gmail.com`]) {
+    const r = await c.post("/api/register", goodPayload({ email }));
+    assert.equal(r.status, 422, email);
+    assert.ok(r.data.errors.email, email);
+  }
+  await s.close();
+});
+
+/* ================= one mailbox, one account ================= */
+
+test("an email can't be registered again as a dotted or +tagged variant of a verified mailbox", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  const existing = ["juan.cruz@gmail.com", "maria.s@outlook.com"];
+  for (const e of existing) await insertVerifiedUser(s.db, e);
+  const taken = new Set(existing.map(canonicalEmail));
+  const candidates = [
+    "juan.cruz@gmail.com", "juancruz@gmail.com", "j.u.a.n.c.r.u.z@gmail.com", "juan.cruz+news@gmail.com", "JUAN.CRUZ@googlemail.com", // same Gmail mailbox
+    "juan.cruz2@gmail.com", "juancruz@yahoo.com", "juancruz@outlook.com",                                                            // different
+    "maria.s+x@outlook.com", "marias@outlook.com",                                                                                    // Outlook: +tag ignored, dots count
+  ];
+  for (const email of candidates) {
+    const r = await c.get(`/api/email-available?email=${encodeURIComponent(email)}`);
+    assert.equal(r.data.available, !taken.has(canonicalEmail(email)), email);     // the SQL rule agrees with canonicalEmail() for every one
+  }
+  assert.equal((await c.post("/api/register", goodPayload({ email: "juancruz+test@gmail.com" }))).status, 409);
+  assert.equal((await c.post("/api/register", goodPayload({ email: "juan.cruz3@gmail.com" }))).status, 201);
+  await s.close();
+});
+
+/* ================= requests sent at the same moment ================= */
+
+const FAST = { rateLimit: { registerMax: 500, loginMax: 500, otpMax: 500, generalMax: 5000 } };
+
+test("login: wrong passwords sent at the same moment still stop at 3 and lock the account once", async () => {
+  const s = await startServer(FAST, { dbDelayMs: 25 });
+  const { c, payload } = await registerAndVerify(s);
+  await c.warm();
+  const rs = await Promise.all(Array.from({ length: 12 }, () => c.post("/api/login", { email: payload.email, password: "Wrong!Password11" })));
+  const invalid = rs.filter((r) => r.data.code === "INVALID_CREDENTIALS");
+  assert.ok(invalid.length <= 2, `${invalid.length} wrong guesses were counted as ordinary tries`);
+  assert.equal(new Set(invalid.map((r) => r.data.attemptsLeft)).size, invalid.length);   // no two requests shared a count
+  const row = await s.db.prepare("SELECT failed_login_attempts, is_locked FROM users WHERE email = ?").get(payload.email);
+  assert.equal(row.is_locked, true);
+  assert.ok(row.failed_login_attempts >= 3);
+  assert.equal(s.outbox.list().filter((m) => m.to === payload.email && m.body.includes("/unlock?token=")).length, 1); // one unlock email, not twelve
+  await s.close();
+});
+
+test("login: the right password sent after the lock is still refused", async () => {
+  const s = await startServer(FAST);
+  const { c, payload } = await registerAndVerify(s);
+  for (let i = 0; i < 3; i++) await c.post("/api/login", { email: payload.email, password: "Wrong!Password11" });
+  const good = await c.post("/api/login", { email: payload.email, password: payload.password });
+  assert.equal(good.status, 423);
+  await s.close();
+});
+
+test("OTP: wrong codes sent at the same moment still stop at 3", async () => {
+  const s = await startServer(FAST, { dbDelayMs: 25 });
+  const { c } = await registerAndVerify(s, {}, { mobile: false });
+  await c.warm();
+  const real = lastOtp(s.outbox);
+  const wrongCodes = Array.from({ length: 12 }, (_, i) => String((Number(real) + 1 + i) % 1000000).padStart(6, "0"));
+  const rs = await Promise.all(wrongCodes.map((code) => c.post("/api/otp/verify", { code })));
+  assert.equal(rs.filter((r) => r.data.code === "OTP_WRONG").length, 2);   // tries 1 and 2; the 3rd locks it and the rest are turned away
+  assert.equal(rs.filter((r) => r.status === 423).length, 10);
+  assert.equal((await c.post("/api/otp/verify", { code: real })).status, 423); // even the right code is refused now
+  await s.close();
+});
+
+test("an email link used twice at the same moment works exactly once", async () => {
+  const s = await startServer(FAST, { dbDelayMs: 25 });
+  const c = client(s.base);
+  const payload = goodPayload();
+  assert.equal((await c.post("/api/register", payload)).status, 201);
+  const token = new URL(lastLink(s.outbox, /verify/i)).searchParams.get("token");
+  const clients = Array.from({ length: 6 }, () => client(s.base));
+  await Promise.all(clients.map((x) => x.warm()));
+  const rs = await Promise.all(clients.map((x) => x.post("/api/verify-email", { token })));
+  assert.equal(rs.filter((r) => r.status === 200).length, 1);
+  assert.ok(rs.filter((r) => r.status !== 200).every((r) => r.data.code === "TOKEN_USED"));
+  await s.close();
+});
+
+test("OTP: a burst of text-message requests sends one SMS", async () => {
+  const s = await startServer({ ...FAST, otp: { resendMs: 0, lockMs: 4000 } }, { smsDelayMs: 300 });
+  const { c } = await registerAndVerify(s, {}, { mobile: false });
+  await c.warm();
+  const smsCount = () => s.outbox.list().filter((m) => m.type === "sms").length;
+  const before = smsCount();
+  const rs = await Promise.all(Array.from({ length: 8 }, () => c.post("/api/otp/send", {})));
+  assert.equal(rs.filter((r) => r.status === 200).length, 1);
+  assert.equal(rs.filter((r) => r.status === 429).length, 7);
+  assert.equal(smsCount() - before, 1);
+  await s.close();
+});
+
+/* ================= database layout (section 4 of the requirements) ================= */
+
+test("database columns have the types the requirements ask for", async () => {
+  const s = await startServer();
+  const { rows } = await s.db.query(`SELECT table_name, column_name, data_type, character_maximum_length AS len, udt_name
+                                     FROM information_schema.columns WHERE table_schema = current_schema()
+                                       AND table_name IN ('users', 'addresses', 'verification_tokens')`);
+  const typeOf = (table, col) => {
+    const r = rows.find((x) => x.table_name === table && x.column_name === col);
+    if (!r) return "(missing)";
+    if (r.data_type === "character varying") return `varchar(${r.len})`;
+    if (r.data_type === "USER-DEFINED") return `enum:${r.udt_name}`;
+    return r.data_type === "timestamp without time zone" ? "timestamp" : r.data_type;
+  };
+  const expected = {
+    users: { id: "uuid", first_name: "varchar(50)", last_name: "varchar(50)", middle_initial: "varchar(2)", birthday: "date", password_hash: "varchar(255)",
+      email: "varchar(255)", email_verified_at: "timestamp", mobile_number: "varchar(20)", mobile_verified: "boolean", failed_login_attempts: "integer",
+      is_locked: "boolean", lockout_until: "timestamp", created_at: "timestamp", updated_at: "timestamp" },
+    addresses: { id: "uuid", user_id: "uuid", house_street: "varchar(255)", country: "varchar(100)", city: "varchar(100)", state: "varchar(100)", zip_code: "varchar(20)" },
+    verification_tokens: { id: "uuid", user_id: "uuid", token_hash: "varchar(255)", type: "enum:verification_token_type", expired_at: "timestamp" },
+  };
+  for (const [table, cols] of Object.entries(expected)) for (const [col, type] of Object.entries(cols)) assert.equal(typeOf(table, col), type, `${table}.${col}`);
+  const labels = (await s.db.query("SELECT unnest(enum_range(NULL::verification_token_type))::text AS v")).rows.map((r) => r.v);
+  assert.deepEqual(labels, ["email_verify", "mobile_otp", "password_reset", "account_unlock"]);
+  const fks = (await s.db.query("SELECT conrelid::regclass::text AS t, confdeltype FROM pg_constraint WHERE contype = 'f' AND confrelid = 'users'::regclass")).rows;
+  assert.ok(fks.length >= 2 && fks.every((f) => f.confdeltype === "c"));          // deleting a user deletes what hangs off it
+  const unique = (await s.db.query("SELECT 1 FROM pg_constraint WHERE conrelid = 'users'::regclass AND contype = 'u' AND conname = 'users_email_key'")).rowCount;
+  assert.equal(unique, 1);
+  await s.close();
+});
+
+test("dates still reach the app as plain text with the real DATE / TIMESTAMP columns", async () => {
+  const s = await startServer();
+  const { c, payload } = await registerAndVerify(s);
+  const login = await c.post("/api/login", { email: payload.email, password: payload.password });
+  assert.equal(login.status, 200);
+  assert.equal(login.data.user.birthday, "1998-03-25");
+  assert.match(login.data.user.createdAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  const me = await c.get("/api/me");
+  assert.equal(me.data.user.birthday, "1998-03-25");
+  assert.ok(Date.parse(me.data.sessionExpiresAt) > Date.now());
   await s.close();
 });

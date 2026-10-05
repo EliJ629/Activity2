@@ -4,7 +4,7 @@
    Requirement map
      1b  security ........ HTTPS enforcement, Argon2id, rate limit, CSRF
      2   verification .... email link (24 h) + SMS OTP (6 digits, 5 min, 3 tries, resend after 60 s)
-     3   login ........... generic wrong-password error, "not registered" notice for unknown emails, lock after 3 failures, unlock email + 2-minute cooling period
+     3   login ........... generic errors, lock after 3 failures, unlock email + 2-minute cooling period
      4   database ........ schema.sql (users / addresses / verification_tokens + sessions) - PostgreSQL
      5   landing page .... /api/me, /api/accounts (used by the modal), logout
    ========================================================= */
@@ -22,9 +22,10 @@ import { sha256, newToken, nowIso, safeEqual, sign, unsign, cookieOptions, csrfH
 import { verificationEmail, unlockEmail, otpSms } from "./templates.js";
 import {
   validateRegistration, validateLoginEmail, validateBirthday, validateMobile,
-  normalizeName, normalizeMiddleInitial, normalizeEmail, normalizeZip,
+  normalizeName, normalizeMiddleInitial, normalizeEmail, normalizeZip, canonicalEmail,
 } from "../shared/validation.js";
 import { getCountry } from "../shared/countries.js";
+import { createPostalService, assertPostalDataReady } from "./postal.js";
 
 const str = (v) => (typeof v === "string" ? v : "");
 const ms = (isoText) => Date.parse(isoText);
@@ -47,20 +48,34 @@ const maskEmail = (email) => {
 };
 const maskMobile = (e164) => `${e164.slice(0, -7)}${"*".repeat(3)}${e164.slice(-4)}`;
 
-export async function createApp({ config, db, mailer, sms, outbox }) {
+export async function createApp({ config, db, mailer, sms, outbox, postal: postalDep }) {
+  assertPostalDataReady(); // fail at startup, not on someone's first registration, if the ZIP table is missing
+  const postalService = postalDep ?? createPostalService(); // asks the ZIP API, falls back to the table (server/postal.js)
   const app = express();
   const publicDir = path.join(ROOT, "public");
   const csrf = csrfHandlers(config);
 
   const argonOptions = { type: argon2.argon2id, memoryCost: config.argon2.memoryCost, timeCost: config.argon2.timeCost, parallelism: config.argon2.parallelism };
   const hashPassword = (pw) => argon2.hash(pw, argonOptions);
+  // Verified when the email doesn't exist, so response time doesn't reveal which emails are registered
+  const dummyHash = await hashPassword(crypto.randomBytes(16).toString("hex"));
 
   /* ---------- prepared statements ---------- */
   const q = {
     userByEmail: db.prepare("SELECT * FROM users WHERE email = ?"),
     userById: db.prepare("SELECT * FROM users WHERE id = ?"),
+    // A VERIFIED account whose mailbox is the same once dots / +tags are ignored. This is the SQL twin of
+    // canonicalEmail() in shared/validation.js (a test keeps them identical). It uses chr(64) for the
+    // "@" on purpose: db.js reads any "@word" in SQL text as a named parameter.
+    verifiedByCanonical: db.prepare(`SELECT id FROM users WHERE email_verified_at IS NOT NULL AND (
+        CASE WHEN split_part(lower(email), chr(64), 2) IN ('gmail.com', 'googlemail.com')
+             THEN replace(split_part(split_part(lower(email), chr(64), 1), '+', 1), '.', '') || chr(64) || 'gmail.com'
+             ELSE split_part(split_part(lower(email), chr(64), 1), '+', 1) || chr(64) || split_part(lower(email), chr(64), 2)
+        END) = ? LIMIT 1`),
     addressByUser: db.prepare("SELECT * FROM addresses WHERE user_id = ?"),
     latestToken: db.prepare("SELECT * FROM verification_tokens WHERE user_id = ? AND type = ? ORDER BY created_at DESC LIMIT 1")  };
+  // Is this mailbox already owned by a verified account? "j.uan@gmail.com" and "juan+x@gmail.com" count as "juan@gmail.com".
+  const mailboxTaken = async (email) => Boolean(await q.verifiedByCanonical.get(canonicalEmail(email)));
   // SQL text for the two inserts that make up registration - prepared fresh
   // against the transaction's own connection inside POST /api/register, so
   // they run on the same connection as the surrounding BEGIN/COMMIT.
@@ -270,6 +285,7 @@ async function sendOtp(user) {
   const emailLinkLimiter = limiter(30, 60 * 60 * 1000, "Too many attempts. Please try again later.");
   const resendLimiter = limiter(5, 60 * 60 * 1000, "Too many requests. Please try again later.");
   const emailCheckLimiter = limiter(60, 15 * 60 * 1000, "Too many email checks. Please slow down.");
+  const postalLimiter = limiter(120, 15 * 60 * 1000, "Too many postal-code checks. Please slow down.");
   const generalLimiter = limiter(config.rateLimit.generalMax, 15 * 60 * 1000, "Too many requests. Please slow down.");
 
   /* =====================================================
@@ -336,8 +352,23 @@ async function sendOtp(user) {
   // limited, since like the 409 on registration it does say whether an email is registered.
   app.get("/api/email-available", emailCheckLimiter, async (req, res) => {
     const email = normalizeEmail(str(req.query?.email));
-    const user = email ? await q.userByEmail.get(email) : null;
-    res.json({ available: !user?.email_verified_at });
+    res.json({ available: !(email && (await mailboxTaken(email))) });
+  });
+
+  // The postal codes of one Philippine city (for the hint under the ZIP field) and, when a ZIP is given, whether it
+  // belongs to that city. It is answered by the same check registration uses, so the form and the server always agree.
+  app.get("/api/ph-postal", postalLimiter, async (req, res) => {
+    const cityCode = str(req.query?.cityCode);
+    const found = await postalService.zipsFor(cityCode);
+    if (!found) return res.status(404).json({ code: "UNKNOWN_CITY", message: "Unknown city." });
+    const out = { city: found.city, zips: found.zips, source: found.source };
+    const zip = normalizeZip(str(req.query?.zip));
+    if (/^\d{4}$/.test(zip)) {
+      const r = await postalService.check({ countryCode: "PH", zip, city: found.city, cityCode }, { verifyName: false });
+      out.valid = r.status === "ok";
+      if (!out.valid) out.message = r.message;
+    }
+    res.json(out);
   });
 
   if (outbox.enabled) {
@@ -364,6 +395,7 @@ async function sendOtp(user) {
         countryCode: str(a.countryCode).toUpperCase(),
         state: str(a.state).trim().replace(/\s+/g, " "),
         city: str(a.city).trim().replace(/\s+/g, " "),
+        cityCode: str(a.cityCode).trim(), // Philippines: the PSGC code of the chosen city (used to check the ZIP)
         barangay: str(a.barangay).trim().replace(/\s+/g, " "),
         zip: normalizeZip(str(a.zip)),
       },
@@ -373,8 +405,14 @@ async function sendOtp(user) {
     if (!country && !errors.countryCode) errors.countryCode = "Select a valid country.";
     if (Object.keys(errors).length) return res.status(422).json({ code: "VALIDATION", message: "Please fix the highlighted fields.", errors });
 
+    // Philippines: the ZIP has to be one of the selected city's own postal codes - answered by the ZIP API, with the
+    // bundled table as the fallback if the API can't be reached (see server/postal.js)
+    const zipCheck = await postalService.check({ countryCode: payload.address.countryCode, zip: payload.address.zip, city: payload.address.city, cityCode: payload.address.cityCode });
+    if (zipCheck.status === "mismatch") return res.status(422).json({ code: "VALIDATION", message: "Please fix the highlighted fields.", errors: { zip: zipCheck.message } });
+    if (zipCheck.status === "invalid") return res.status(422).json({ code: "VALIDATION", message: "Please fix the highlighted fields.", errors: { city: zipCheck.message } });
+
     const existing = await q.userByEmail.get(payload.email);
-    if (existing && existing.email_verified_at) {
+    if (await mailboxTaken(payload.email)) {
       return res.status(409).json({ code: "EMAIL_TAKEN", message: "An account with this email already exists.", errors: { email: "An account with this email already exists." } });
     }
 
@@ -425,7 +463,8 @@ async function sendOtp(user) {
       const { code, message } = byStatus[found.status] || { code: "TOKEN_INVALID", message: "This verification link is invalid." };
       return res.status(400).json({ code, message });
     }
-    await markUsed(found.row.id);
+    // claim the link in one step: if two clicks arrive at the same moment, only one gets to use it
+    if (!(await markUsed(found.row.id)).changes) return res.status(400).json({ code: "TOKEN_USED", message: "This verification link has already been used and cannot be reused." });
     await db.prepare("UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?), updated_at = ? WHERE id = ?").run(nowIso(), nowIso(), found.row.user_id);
     const user = await q.userById.get(found.row.user_id);
     if (user.mobile_verified) return res.json({ ok: true, next: "login" });
@@ -459,7 +498,16 @@ async function sendOtp(user) {
     res.json({ verified: false, ...(await otpState(req.user)) });
   });
 
-  app.post("/api/otp/send", otpLimiter, requireOnboarding, async (req, res) => {
+  // One text-message send at a time per account: otherwise a burst of requests sent at the same moment all see
+  // "no cooldown yet" and every one of them sends an SMS.
+  const otpSending = new Set();
+  const oneOtpSendAtATime = (req, res, next) => {
+    if (otpSending.has(req.user.id)) return res.status(429).json({ code: "OTP_COOLDOWN", message: "A code is already on its way. Please wait a moment.", retryAfter: 5 });
+    otpSending.add(req.user.id);
+    res.on("close", () => otpSending.delete(req.user.id));
+    next();
+  };
+  app.post("/api/otp/send", otpLimiter, requireOnboarding, oneOtpSendAtATime, async (req, res) => {
     if (req.user.mobile_verified) return res.json({ verified: true });
     try {
       const r = await sendOtp(req.user);
@@ -483,30 +531,48 @@ async function sendOtp(user) {
     if (!last || last.used_at) return res.status(400).json({ code: "OTP_NONE", message: "There is no active code. Request a new one." });
     if (ms(last.expired_at) <= now) return res.status(400).json({ code: "OTP_EXPIRED", message: "This code has expired. Request a new one." });
 
+    // Take one of the allowed attempts BEFORE looking at the code, in a single statement. (Reading the count and writing
+    // it back let a burst of guesses sent at the same moment each see "0 used" and each get a free try - the limit of 3
+    // meant nothing.) If no attempt is left, the code is closed.
+    const taken = await db.prepare("UPDATE verification_tokens SET attempts = attempts + 1 WHERE id = ? AND used_at IS NULL AND attempts < ? RETURNING attempts").get(last.id, config.otp.maxAttempts);
+    if (!taken) {
+      return res.status(423).json({ code: "OTP_LOCKED", message: "Too many wrong codes. Verification is locked for a while.", retryAfter: Math.ceil(config.otp.lockMs / 1000) });
+    }
+    const attempts = taken.attempts;
     if (!safeEqual(otpHash(user.id, code), last.token_hash)) {
-      const attempts = last.attempts + 1;
       if (attempts >= config.otp.maxAttempts) {
         const until = nowIso(now + config.otp.lockMs);
-        await db.prepare("UPDATE verification_tokens SET attempts = ?, used_at = ?, locked_until = ? WHERE id = ?").run(attempts, nowIso(), until, last.id);
+        await db.prepare("UPDATE verification_tokens SET used_at = ?, locked_until = ? WHERE id = ?").run(nowIso(), until, last.id);
         return res.status(423).json({ code: "OTP_LOCKED", message: "Too many wrong codes. Verification is locked for a while.", retryAfter: secondsUntil(until) });
       }
-      await db.prepare("UPDATE verification_tokens SET attempts = ? WHERE id = ?").run(attempts, last.id);
       return res.status(400).json({ code: "OTP_WRONG", message: "That code isn't right.", attemptsLeft: config.otp.maxAttempts - attempts });
     }
-    await markUsed(last.id);
+    // Right code: claim it in one step, so it can't be used twice
+    if (!(await markUsed(last.id)).changes) return res.status(400).json({ code: "OTP_NONE", message: "There is no active code. Request a new one." });
     await db.prepare("UPDATE users SET mobile_verified = TRUE, updated_at = ? WHERE id = ?").run(nowIso(), user.id);
     res.clearCookie(ONB, cookieOptions(req));
     res.json({ ok: true });
   });
 
   /* ---------- login (section 3) ---------- */
-  // An email with no account is told so plainly. That is a deliberate choice - it helps
-  // someone who mistyped their address - but note it does let anyone check whether an
-  // email is registered, which requirement 3.b.iv of the document ("generic error messages
-  // ... to prevent user enumeration attacks") asks to avoid; the sign-in rate limit is what
-  // holds mass probing back. There is no account to count failures against or to lock, so
-  // none of the attempt/lock messages ever apply to these emails.
-  const notRegisteredReply = (res) => res.status(404).json({ code: "EMAIL_NOT_REGISTERED", message: "This email is not yet registered on this website." });
+  // Failed attempts for emails that are NOT registered are counted too, so the
+  // "account locked" answer looks identical for real and unknown emails.
+  const shadow = new Map();
+  const shadowLocked = (email) => (shadow.get(email)?.until || 0) > Date.now();
+  // Returns how many attempts are left. There is deliberately no time-based reset: a real
+  // account's failure counter only resets on a successful sign-in or an unlock, and this has
+  // to count the same way - otherwise the "attempts left" message would behave differently
+  // for unregistered emails and give away which ones are registered.
+  function shadowFail(email) {
+    const now = Date.now();
+    const s = shadow.get(email) || { count: 0, until: 0, last: 0 };
+    s.count += 1;
+    s.last = now;
+    if (s.count >= config.login.maxFailures) s.until = now + 30 * 60 * 1000;
+    shadow.set(email, s);
+    if (shadow.size > 5000) for (const [k, v] of shadow) if (now - v.last > 30 * 60 * 1000) shadow.delete(k);
+    return Math.max(0, config.login.maxFailures - s.count);
+  }
   const lockedReply = (res) => res.status(423).json({
     code: "ACCOUNT_LOCKED",
     message: `Your account is locked after ${config.login.maxFailures} failed attempts in a row. We sent an unlock link to your registered email. It works after a ${waitLabel(config.login.unlockCooldownMs)} waiting period.`,
@@ -521,7 +587,12 @@ async function sendOtp(user) {
     if (validateLoginEmail(email) || !password || password.length > 1024) return res.status(400).json({ code: "BAD_REQUEST", message: "Enter your email and password." });
 
     const user = await q.userByEmail.get(email);
-    if (!user) return notRegisteredReply(res);
+    if (!user) {
+      if (shadowLocked(email)) return lockedReply(res);
+      await argon2.verify(dummyHash, password).catch(() => false);
+      const left = shadowFail(email);
+      return left === 0 ? lockedReply(res) : invalidReply(res, left);
+    }
 
     // step 3: is the account locked?
     if (user.is_locked) {
@@ -533,12 +604,19 @@ async function sendOtp(user) {
     // step 5: compare the password hash
     const ok = await argon2.verify(user.password_hash, password).catch(() => false);
     if (!ok) {
-      const failures = user.failed_login_attempts + 1; // step 6: increment
-      if (failures >= config.login.maxFailures) { await lockUser(user); return lockedReply(res); } // step 7
-      await db.prepare("UPDATE users SET failed_login_attempts = ?, updated_at = ? WHERE id = ?").run(failures, nowIso(), user.id);
+      // step 6: increment - in ONE statement. (Reading the count, adding one and writing it back lets guesses
+      // sent at the same moment all read the same old number, so the limit of 3 could be beaten by going parallel.)
+      const { failed_login_attempts: failures } = await db.prepare("UPDATE users SET failed_login_attempts = failed_login_attempts + 1, updated_at = ? WHERE id = ? RETURNING failed_login_attempts").get(nowIso(), user.id);
+      if (failures >= config.login.maxFailures) {
+        if (failures === config.login.maxFailures) await lockUser(user); // only the attempt that crosses the line locks it, and sends the one unlock email
+        return lockedReply(res); // step 7
+      }
       return invalidReply(res, config.login.maxFailures - failures);
     }
-    await db.prepare("UPDATE users SET failed_login_attempts = 0, updated_at = ? WHERE id = ?").run(nowIso(), user.id);
+    // A correct password only counts if the account is STILL unlocked at this instant: a parallel wrong guess may have locked it
+    // after this request first looked.
+    const cleared = await db.prepare("UPDATE users SET failed_login_attempts = 0, updated_at = ? WHERE id = ? AND is_locked = FALSE RETURNING id").get(nowIso(), user.id);
+    if (!cleared) return lockedReply(res);
 
     // step 4: verified + active. Checked after the password so status is only ever shown to the real owner.
     if (!user.email_verified_at) return res.status(403).json({ code: "EMAIL_NOT_VERIFIED", message: "Please verify your email address first. Check your inbox for the verification link." });

@@ -48,8 +48,8 @@ def aladhan(url):
 
 def psgc(url):
     if url.endswith("/regions/"): return [{"code": "130000000", "name": "NCR", "regionName": "National Capital Region"}, {"code": "010000000", "name": "Ilocos Region", "regionName": "Region I"}]
-    if "/cities-municipalities/" in url and url.endswith("/barangays/"): return [{"code": "137404176", "name": "Barangay 176"}, {"code": "137404001", "name": "Barangay 1"}]
-    if url.endswith("/cities-municipalities/"): return [{"code": "137404000", "name": "Caloocan City", "provinceCode": False}]
+    if "/cities-municipalities/" in url and url.endswith("/barangays/"): return [{"code": "137501176", "name": "Barangay 176"}, {"code": "137501001", "name": "Barangay 1"}]
+    if url.endswith("/cities-municipalities/"): return [{"code": "137501000", "name": "Caloocan City", "provinceCode": False}]
     return []
 
 def dns(url): return {"Status": 0, "Answer": [{"type": 15, "data": "10 mx.example.net."}]}
@@ -142,18 +142,24 @@ def main():
 
             page.fill("#mobile", "12345"); page.locator("#mobile").blur()
             expect(page.locator("#mobile-error")).to_contain_text("10 digits after +63")
-            page.fill("#mobile", "917 123 4567")
+            page.fill("#mobile", "0917 123 4567")                     # a leading 0 is dropped as it is typed
+            expect(page.locator("#mobile")).to_have_value("9171234567")
+            expect(page.locator("[data-testid=mobile-counter]")).to_have_text("10 / 10")
             expect(page.locator("#mobile-error")).to_have_count(0)
 
             page.fill("#houseStreet", "Blk 12 Lot 5, Rizal St.")
             page.select_option("#region", "130000000")
             expect(page.locator("#city")).to_be_enabled()
-            page.select_option("#city", "137404000")
+            page.select_option("#city", "137501000")
             expect(page.locator("#barangay")).to_be_enabled()
-            page.select_option("#barangay", "137404176")
+            page.select_option("#barangay", "137501176")
             page.fill("#zip", "14000"); page.locator("#zip").blur()
             expect(page.get_by_text("doesn't match the format")).to_be_visible()
+            # a real ZIP, but Quezon City's: the city's own codes are listed and the form refuses it
+            page.fill("#zip", "1100"); page.locator("#zip").blur()
+            expect(page.get_by_text("isn't a postal code for Caloocan City")).to_be_visible()
             page.fill("#zip", "1400")
+            expect(page.get_by_text("isn't a postal code")).to_have_count(0)
             shot(page, "02-register-mobile-filled")
 
             page.get_by_role("button", name="Create account").click()
