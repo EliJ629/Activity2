@@ -2,9 +2,10 @@
 // Philippine address data from the free PSGC API (https://psgc.gitlab.io/api/)
 // Province -> City
 //
-// The Municipality/City dropdown lists the picked province's cities first, then its municipalities (Ilocos Norte: City of
-// Batac and City of Laoag, then its 21 municipalities). Most places in the Philippines are municipalities, not cities (1,488
-// of 1,634) and 28 of the 82 provinces have no city at all, so a list of cities alone would shut most people out.
+// The Municipality/City dropdown is ONE merged list of the picked province's cities and municipalities, sorted by name
+// (Ilocos Norte: its 2 cities and 21 municipalities together, 23 places; "City of Laoag" is found under L). Most places in the
+// Philippines are municipalities, not cities (1,488 of 1,634) and 28 of the 82 provinces have no city at all, so a list of
+// cities alone would shut most people out.
 // If you want the dropdown to hold CITIES ONLY, set SHOW_MUNICIPALITIES to false: a province with no city then lists its
 // municipalities instead, so nobody is left with an empty list.
 //
@@ -144,7 +145,7 @@ export async function fetchMunicipalities(provinceCode) {
   return toOptions(await placesOf(provinceCode, "municipalities"), "municipalities");
 }
 
-// What the Municipality/City dropdown lists for a province: its cities, then its municipalities (each sorted by name).
+// What the Municipality/City dropdown lists for a province: its cities and municipalities merged into one list, sorted by name.
 export async function fetchPlaces(provinceCode) {
   const code = String(provinceCode).split("|")[0];
   if (!SHOW_MUNICIPALITIES) {
@@ -152,5 +153,5 @@ export async function fetchPlaces(provinceCode) {
     return cities.length ? cities : fetchMunicipalities(code);
   }
   const [cities, municipalities] = await Promise.all([fetchCities(code), fetchMunicipalities(code)]);
-  return [...cities, ...municipalities];
+  return [...cities, ...municipalities].sort(byName);
 }

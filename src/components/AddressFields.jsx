@@ -39,9 +39,6 @@ const NO_OPTIONS = { list: [], loading: false, error: "" };
 
 function ApiSelect({ id, label, placeholder, value, options, disabled, onSelect, onBlur, error, otherLabel }) {
   const text = options.loading ? "Loading..." : placeholder;
-  const renderOption = (o) => <option key={o.code} value={o.code}>{o.name}</option>;
-  // a list of cities AND municipalities is shown in two labelled groups, cities first
-  const hasBoth = options.list.some((o) => o.kind === "city") && options.list.some((o) => o.kind === "municipality");
   return (
     <div className="field">
       <label className="field__label" htmlFor={id}>{label}</label>
@@ -59,12 +56,7 @@ function ApiSelect({ id, label, placeholder, value, options, disabled, onSelect,
         }}
       >
         <option value="">{text}</option>
-        {hasBoth ? (
-          <>
-            <optgroup label="Cities">{options.list.filter((o) => o.kind === "city").map(renderOption)}</optgroup>
-            <optgroup label="Municipalities">{options.list.filter((o) => o.kind === "municipality").map(renderOption)}</optgroup>
-          </>
-        ) : options.list.map(renderOption)}
+        {options.list.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
         {otherLabel && !options.loading && <option value={OTHER}>{otherLabel}</option>}
       </select>
       {options.error && <p className="field__error">{options.error}</p>}
@@ -123,8 +115,7 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipOption
   const isPH = value.countryCode === "PH";
   const countries = useMemo(() => listCountries(), []);
   const provinces = useOptions(fetchProvinces, isPH ? "all" : null);
-  // The Municipality/City list holds the picked province's places in two groups: its cities first (Ilocos Norte: City of Batac,
-  // City of Laoag), then its municipalities (see utils/psgcApi.js).
+  // The Municipality/City list is the picked province's cities and municipalities merged into one list (see utils/psgcApi.js).
   const cities = useOptions(fetchPlaces, isPH && value.province ? value.province : null);
 
   // Other countries: states of the country, then cities of the state (lists come from our server; empty = not available)
