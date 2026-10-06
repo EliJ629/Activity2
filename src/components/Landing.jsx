@@ -133,7 +133,6 @@ export function DashboardPage() {
         <p className="hero__lead">Your account is verified and ready. Browse the accounts directory or plan ahead with the Philippine holiday calendar.</p>
         <div className="hero__actions">
           <button type="button" className="btn btn--light" onClick={() => openModal("accounts")}>View More</button>
-          <button type="button" className="btn btn--ghost" onClick={() => openModal("holidays")}>Philippine Holidays</button>
         </div>
       </div>
     </main>

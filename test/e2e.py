@@ -256,6 +256,9 @@ def main():
             expect(page.get_by_role("dialog")).to_have_count(0)
 
             # ---------------- View More -> Accounts tab ----------------
+            # the hero has the one button; the holidays are reached from the menu bar ("Standard Philippine Holidays"), not from a second button here
+            expect(page.locator(".hero__actions button")).to_have_count(1)
+            expect(page.locator(".hero__actions").get_by_text("Philippine Holidays")).to_have_count(0)
             page.get_by_role("button", name="View More").click()
             expect(page.get_by_role("tab", name="Accounts")).to_have_attribute("aria-selected", "true")
             expect(page.locator(".table tbody tr")).to_have_count(1)
