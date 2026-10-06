@@ -814,3 +814,24 @@ test("the browser may call only the address and DNS services directly; holidays 
   assert.deepEqual(connect.sort(), ["'self'", "https://dns.google", "https://psgc.gitlab.io"]);
   await s.close();
 });
+
+test("after a deploy the browser must not keep running the old page: HTML, script and stylesheet are always revalidated", async () => {
+  const s = await startServer();
+  for (const url of ["/", "/app.js", "/index.css", "/dashboard"]) {
+    const r = await fetch(s.base + url);
+    assert.equal(r.status, 200, url);
+    assert.equal(r.headers.get("cache-control"), "no-cache", url);
+  }
+  // an unchanged script costs almost nothing: the browser asks "has it changed?" and is told 304
+  const first = await fetch(s.base + "/app.js");
+  const etag = first.headers.get("etag");
+  assert.ok(etag, "the script has an ETag");
+  // (a browser revalidating sends max-age=0; Node's fetch would otherwise add "no-cache" to a conditional request on its own, which asks for a full answer)
+  const again = await fetch(s.base + "/app.js", { headers: { "if-none-match": etag, "cache-control": "max-age=0" } });
+  assert.equal(again.status, 304);
+  // images may still be kept for a while
+  const icon = await fetch(s.base + "/assets/favicon.svg");
+  assert.equal(icon.status, 200);
+  assert.notEqual(icon.headers.get("cache-control"), "no-cache");
+  await s.close();
+});

@@ -755,8 +755,11 @@ async function sendOtp(user) {
      static files + fallbacks
      ===================================================== */
   app.use("/api", (_req, res) => res.status(404).json({ message: "Not found." }));
-  app.use(express.static(publicDir, { index: false, maxAge: config.isProd ? "1h" : 0, setHeaders: (res, file) => { if (file.endsWith(".html")) res.set("Cache-Control", "no-cache"); } }));
-  app.get("/{*splat}", (_req, res) => res.sendFile(path.join(publicDir, "index.html")));
+  // The page itself (HTML, script, stylesheet) is always revalidated: the file names never change between deploys, so a browser that
+  // was allowed to keep the script for an hour would go on running the OLD page after a deploy. "no-cache" still lets it keep a copy:
+  // it asks "has it changed?" and an unchanged file is answered with a tiny 304. Images and fonts may be kept for an hour.
+  app.use(express.static(publicDir, { index: false, maxAge: config.isProd ? "1h" : 0, setHeaders: (res, file) => { if (/\.(html|js|css)$/.test(file)) res.set("Cache-Control", "no-cache"); } }));
+  app.get("/{*splat}", (_req, res) => { res.set("Cache-Control", "no-cache"); res.sendFile(path.join(publicDir, "index.html")); });
 
   app.use((err, _req, res, _next) => {
     if (err.type === "entity.parse.failed") return res.status(400).json({ message: "Invalid request." });
