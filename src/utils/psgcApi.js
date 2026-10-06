@@ -13,6 +13,13 @@
 //
 // The old region dropdown also needed a patch for the Negros Island Region (2024); provinces are not affected by it, so
 // that patch is gone.
+//
+// Only places that belong to the picked province are ever shown. Whatever a call returns is filtered: an entry the API files
+// under another province (or none) is dropped, so a stray or oversized response cannot put other places in the list.
+//
+// A province's cities are read with the API's "cities and municipalities of this province" call. If that comes back empty
+// or fails, the cities call and the municipalities call are tried separately, and last the full list of every city and
+// municipality is filtered by province, so one odd response for one province cannot leave its list empty.
 
 const BASE_URL = "https://psgc.gitlab.io/api";
 const cache = {};
@@ -38,8 +45,25 @@ async function getRaw(path) {
   return data;
 }
 
-const byName = (a, b) => a.name.localeCompare(b.name);
-const toOptions = (list) => list.map((item) => ({ code: item.code, name: item.name, provinceCode: item.provinceCode })).sort(byName);
+// Listed by the name people look for: "City of Laoag" is found under L, not under C
+const sortKey = (name) => name.replace(/^(city|municipality) of\s+/i, "");
+// Does this city / municipality belong to this province? The API says so itself in provinceCode. If it doesn't say, the PSGC
+// code does: a place's code starts with its province's (Ilocos Norte 012800000 -> Laoag 012812000). A place with provinceCode
+// false belongs to no province (Metro Manila's cities, Isabela and Cotabato) and is handled on its own.
+const belongsTo = (city, provinceCode) => {
+  if (city.provinceCode === false) return false;
+  if (city.provinceCode) return String(city.provinceCode) === String(provinceCode);
+  return String(city.code).startsWith(String(provinceCode).slice(0, 4));
+};
+
+const byName = (a, b) => sortKey(a.name).localeCompare(sortKey(b.name)) || a.name.localeCompare(b.name);
+const toOptions = (list) => {
+  const seen = new Set();
+  return list
+    .filter((item) => item && item.code && item.name && !seen.has(item.code) && seen.add(item.code))   // each place once
+    .map((item) => ({ code: item.code, name: item.name, provinceCode: item.provinceCode }))
+    .sort(byName);
+};
 
 export async function fetchProvinces() {
   const data = await getRaw("/provinces/");
@@ -53,10 +77,35 @@ export async function fetchProvinces() {
   return provinces.sort(byName);
 }
 
-export async function fetchCities(provinceCode) {
-  if (provinceCode === NCR.code) return toOptions(await getRaw(`/regions/${NCR.code}/cities-municipalities/`));
+// The raw cities and municipalities of one province, trying the combined call first. Only when EVERY call fails is the
+// error passed on (so the form can say the list could not be loaded); an empty answer from all of them is an empty province.
+async function citiesOfProvince(provinceCode) {
+  let lastError = null;
+  let answered = false;
+  const attempt = async (paths) => {
+    try {
+      const parts = await Promise.all(paths.map((p) => getRaw(p)));
+      answered = true;
+      const list = parts.flat().filter((c) => belongsTo(c, provinceCode));   // an answer full of other provinces' places counts as empty
+      return list.length ? list : null;
+    } catch (err) {
+      lastError = err;
+      return null;
+    }
+  };
+  return (
+    (await attempt([`/provinces/${provinceCode}/cities-municipalities/`])) ||
+    (await attempt([`/provinces/${provinceCode}/cities/`, `/provinces/${provinceCode}/municipalities/`])) ||
+    (await attempt(["/cities-municipalities/"])) ||
+    (answered ? [] : Promise.reject(lastError || new Error("Address API error")))
+  );
+}
 
-  const list = toOptions(await getRaw(`/provinces/${provinceCode}/cities-municipalities/`));
+export async function fetchCities(provinceCode) {
+  // Metro Manila: the region's places, and only the NCR ones (their codes start with 13)
+  if (provinceCode === NCR.code) return toOptions((await getRaw(`/regions/${NCR.code}/cities-municipalities/`)).filter((c) => String(c.code).startsWith("13")));
+
+  const list = toOptions(await citiesOfProvince(provinceCode));
   const name = provinceNames.get(provinceCode) || "";
   const allNames = [...provinceNames.values()];
   for (const extra of PROVINCELESS_CITIES) {
