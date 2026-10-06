@@ -28,6 +28,7 @@ import {
 import { getCountry } from "../shared/countries.js";
 import { createPostalService, assertPostalDataReady } from "./postal.js";
 import { createGeoService } from "./geo.js";
+import { createHolidayService, assertHolidayDataReady } from "./holidayService.js";
 
 const str = (v) => (typeof v === "string" ? v : "");
 const ms = (isoText) => Date.parse(isoText);
@@ -50,10 +51,12 @@ const maskEmail = (email) => {
 };
 const maskMobile = (e164) => `${e164.slice(0, -7)}${"*".repeat(3)}${e164.slice(-4)}`;
 
-export async function createApp({ config, db, mailer, sms, outbox, postal: postalDep, geo: geoDep }) {
+export async function createApp({ config, db, mailer, sms, outbox, postal: postalDep, geo: geoDep, holidays: holidaysDep }) {
   assertPostalDataReady(); // fail at startup, not on someone's first registration, if the ZIP table is missing
+  assertHolidayDataReady(); // ... and the same for the holiday lists (server/holiday-data/ph-holidays.json)
   const postalService = postalDep ?? createPostalService(); // asks the ZIP API, falls back to the table (server/postal.js)
   const geoService = geoDep ?? createGeoService({ apiKey: config.geo.apiKey }); // state / city lists for other countries (server/geo.js)
+  const holidayService = holidaysDep ?? createHolidayService(); // the government's holiday lists per year (server/holidayService.js)
   if (!geoDep) console.log(geoService.configured ? "State / city lists: using the Country State City API." : "State / city lists: NOT configured (no CSC_API_KEY) - other countries type their state and city.");
   const app = express();
   const publicDir = path.join(ROOT, "public");
@@ -316,8 +319,8 @@ async function sendOtp(user) {
         scriptSrc: ["'self'"],
         styleSrc: ["'self'"],
         imgSrc: ["'self'", "data:"],
-        // The browser calls these public APIs directly (address, DNS, holidays)
-        connectSrc: ["'self'", "https://psgc.gitlab.io", "https://dns.google", "https://date.nager.at", "https://api.aladhan.com"],
+        // The browser calls these public APIs directly (address, DNS). Holidays and ZIP codes come through this server.
+        connectSrc: ["'self'", "https://psgc.gitlab.io", "https://dns.google"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
@@ -400,6 +403,20 @@ async function sendOtp(user) {
       return res.status(400).json({ code: "BAD_REQUEST", message: "A country (not the Philippines) and a state code are needed to list cities." });
     }
     res.json(await geoService.cities(country, state));
+  });
+
+  // The Philippine holidays of one year, as declared by the government (see server/holidayService.js for why this is not a
+  // third-party holiday API): { year, proclamation, pending, holidays: [{ date, name, type: regular|special|islamic, expected? }] }
+  app.get("/api/holidays", async (req, res) => {
+    const raw = str(req.query?.year);
+    if (!/^\d{4}$/.test(raw)) return res.status(400).json({ code: "BAD_YEAR", message: "Give a four-digit year, for example ?year=2026." });
+    const year = Number(raw);
+    const list = await holidayService.forYear(year);
+    if (!list) {
+      const years = holidayService.years();
+      return res.status(404).json({ code: "NO_HOLIDAY_LIST", message: `There is no holiday list for ${year}. Available: ${years[0]} to ${years.at(-1)}.` });
+    }
+    res.json(list);
   });
 
   if (outbox.enabled) {
