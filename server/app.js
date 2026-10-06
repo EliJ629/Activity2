@@ -27,6 +27,7 @@ import {
 } from "../shared/validation.js";
 import { getCountry } from "../shared/countries.js";
 import { createPostalService, assertPostalDataReady } from "./postal.js";
+import { createGeoService } from "./geo.js";
 
 const str = (v) => (typeof v === "string" ? v : "");
 const ms = (isoText) => Date.parse(isoText);
@@ -49,9 +50,11 @@ const maskEmail = (email) => {
 };
 const maskMobile = (e164) => `${e164.slice(0, -7)}${"*".repeat(3)}${e164.slice(-4)}`;
 
-export async function createApp({ config, db, mailer, sms, outbox, postal: postalDep }) {
+export async function createApp({ config, db, mailer, sms, outbox, postal: postalDep, geo: geoDep }) {
   assertPostalDataReady(); // fail at startup, not on someone's first registration, if the ZIP table is missing
   const postalService = postalDep ?? createPostalService(); // asks the ZIP API, falls back to the table (server/postal.js)
+  const geoService = geoDep ?? createGeoService({ apiKey: config.geo.apiKey }); // state / city lists for other countries (server/geo.js)
+  if (!geoDep) console.log(geoService.configured ? "State / city lists: using the Country State City API." : "State / city lists: NOT configured (no CSC_API_KEY) - other countries type their state and city.");
   const app = express();
   const publicDir = path.join(ROOT, "public");
   const csrf = csrfHandlers(config);
@@ -285,6 +288,7 @@ async function sendOtp(user) {
   const resendLimiter = limiter(5, 60 * 60 * 1000, "Too many requests. Please try again later.");
   const emailCheckLimiter = limiter(60, 15 * 60 * 1000, "Too many email checks. Please slow down.");
   const postalLimiter = limiter(120, 15 * 60 * 1000, "Too many postal-code checks. Please slow down.");
+  const geoLimiter = limiter(200, 15 * 60 * 1000, "Too many address lookups. Please slow down.");
   const generalLimiter = limiter(config.rateLimit.generalMax, 15 * 60 * 1000, "Too many requests. Please slow down.");
 
   /* =====================================================
@@ -368,6 +372,22 @@ async function sendOtp(user) {
       if (!out.valid) out.message = r.message;
     }
     res.json(out);
+  });
+
+  // State / region and city lists for the address form (every country except the Philippines, which uses PSGC in the
+  // browser). { available: false } means "no list right now" and the form falls back to typing - see server/geo.js.
+  app.get("/api/geo/states", geoLimiter, async (req, res) => {
+    const country = str(req.query?.country).toUpperCase();
+    if (!/^[A-Z]{2}$/.test(country) || country === "PH" || !getCountry(country)) return res.status(400).json({ code: "BAD_COUNTRY", message: "Choose a country (not the Philippines) to list its states." });
+    res.json(await geoService.states(country));
+  });
+  app.get("/api/geo/cities", geoLimiter, async (req, res) => {
+    const country = str(req.query?.country).toUpperCase();
+    const state = str(req.query?.state);
+    if (!/^[A-Z]{2}$/.test(country) || country === "PH" || !getCountry(country) || !/^[A-Za-z0-9]{1,10}$/.test(state)) {
+      return res.status(400).json({ code: "BAD_REQUEST", message: "A country (not the Philippines) and a state code are needed to list cities." });
+    }
+    res.json(await geoService.cities(country, state));
   });
 
   if (outbox.enabled) {

@@ -569,3 +569,73 @@ test("dates still reach the app as plain text with the real DATE / TIMESTAMP col
   assert.ok(Date.parse(me.data.sessionExpiresAt) > Date.now());
   await s.close();
 });
+
+/* ================= state / city lists for other countries (Country State City API, through the server) ================= */
+
+test("GET /api/geo/states lists a country's states with their codes", async () => {
+  const s = await startServer();
+  const r = await client(s.base).get("/api/geo/states?country=us");          // lower case is fine
+  assert.equal(r.status, 200);
+  assert.equal(r.data.available, true);
+  assert.deepEqual(r.data.states.map((x) => x.name), ["California", "New York", "Texas"]);
+  assert.equal(r.data.states[0].code, "CA");
+  await s.close();
+});
+
+test("GET /api/geo/cities lists a state's cities, each name once", async () => {
+  const s = await startServer();
+  const r = await client(s.base).get("/api/geo/cities?country=US&state=CA");
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.data.cities.map((x) => x.name), ["Los Angeles", "San Francisco", "San Jose"]);
+  await s.close();
+});
+
+test("the geo routes refuse the Philippines, unknown countries and odd input", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  for (const url of ["/api/geo/states", "/api/geo/states?country=PH", "/api/geo/states?country=ZZ", "/api/geo/states?country=USA", "/api/geo/states?country=US%20",
+    "/api/geo/cities?country=US", "/api/geo/cities?country=PH&state=NCR", "/api/geo/cities?country=US&state=../etc", "/api/geo/cities?country=US&state=C%27A", "/api/geo/cities?country=US&state=ABCDEFGHIJK"]) {
+    const r = await c.get(url);
+    assert.equal(r.status, 400, url);
+    assert.ok(r.data.code && r.data.message, url);
+  }
+  await s.close();
+});
+
+test("without an API key the lists are simply unavailable (the form types instead), and the key never reaches the browser", async () => {
+  const { createGeoService } = await import("../server/geo.js");
+  const s = await startServer({}, { geo: createGeoService({ apiKey: "" }) });
+  const c = client(s.base);
+  assert.deepEqual((await c.get("/api/geo/states?country=US")).data, { available: false, states: [] });
+  assert.deepEqual((await c.get("/api/geo/cities?country=US&state=CA")).data, { available: false, cities: [] });
+  await s.close();
+
+  const withKey = await startServer();
+  const raw = await fetch(withKey.base + "/api/geo/states?country=US");
+  const text = await raw.text();
+  const headers = JSON.stringify([...raw.headers]);
+  assert.ok(!text.includes("test-key") && !headers.includes("test-key"));
+  await withKey.close();
+});
+
+test("when the API is down the route still answers, with 'unavailable'", async () => {
+  const { createGeoService } = await import("../server/geo.js");
+  const { makeFakeGeoApi, FAKE_KEY } = await import("./fakeGeoApi.js");
+  const s = await startServer({}, { geo: createGeoService({ apiKey: FAKE_KEY, fetchImpl: makeFakeGeoApi({ mode: "500" }).fetchImpl, log: () => {} }) });
+  const r = await client(s.base).get("/api/geo/states?country=US");
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.data, { available: false, states: [] });
+  await s.close();
+});
+
+test("a state and city picked from the lists, even with / – ‘ in them, can be registered", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  const au = { houseStreet: "1 Main St", countryCode: "AU", state: "South Australia", city: "Orroroo/Carrieton", barangay: "", zip: "5000" };
+  const ok = await c.post("/api/register", goodPayload({ mobile: "412 345 678", address: au }));
+  assert.equal(ok.status, 201, JSON.stringify(ok.data));
+  const script = await c.post("/api/register", goodPayload({ mobile: "412 345 678", address: { ...au, city: "<script>alert(1)</script>" } }));
+  assert.equal(script.status, 422);
+  assert.ok(script.data.errors.city);
+  await s.close();
+});

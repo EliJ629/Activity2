@@ -162,3 +162,13 @@ test("zip codes are shown as ranges", () => {
   assert.equal(v.formatZipRanges(["0802", "1100"]), "0802, 1100");
   assert.equal(v.formatZipRanges([]), "");
 });
+
+test("state and city names as real data writes them are accepted, anything script-like is not", () => {
+  for (const name of ["Friuli\u2013Venezia Giulia", "Orroroo/Carrieton", "Pul-e \u2018Alam", "\u2018Alaqahdari Dishu", "'Ali Sabieh", "Bikini & Kili", "Saint-\u00C9tienne",
+    "Xi'an", "O\u2019Fallon", "St. Louis", "Qal\u2018ah-ye Shahr", "Ciudad de M\u00E9xico (CDMX)", "S\u00E3o Paulo", "Coll\u00E8ge [old]"]) {
+    assert.equal(v.validateLocality(name, "City"), "", name);
+  }
+  for (const bad of ["<script>alert(1)</script>", 'Paris"; DROP TABLE users;--', "a{b}", "x=y", "Manila|Cebu", "$100", "a;b", "Makati<br>", "-Manila", "/Manila", "A", "", "  "]) {
+    assert.notEqual(v.validateLocality(bad, "City"), "", JSON.stringify(bad));
+  }
+});

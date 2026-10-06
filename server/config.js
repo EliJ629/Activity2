@@ -96,6 +96,11 @@ export function loadConfig(overrides = {}) {
       pass: env.SMTP_PASS || "",
       from: env.MAIL_FROM || "",
     },
+    // Country State City API (https://countrystatecity.in, free plan): the state and city dropdowns for every country except
+    // the Philippines. Optional - without a key those fields are simply typed. Keep the key on the server only.
+    geo: {
+      apiKey: env.CSC_API_KEY || "",
+    },
     twilio: {
       accountSid: env.TWILIO_ACCOUNT_SID || "",
       authToken: env.TWILIO_AUTH_TOKEN || "",
@@ -125,6 +130,7 @@ export function loadConfig(overrides = {}) {
     cfg[key] = value && typeof value === "object" && !Array.isArray(value) ? { ...cfg[key], ...value } : value;
   }
 
+  cfg.geoConfigured = Boolean(cfg.geo.apiKey);
   cfg.brevoConfigured = Boolean(cfg.brevo.apiKey && cfg.brevo.senderEmail);
   cfg.smtpConfigured = Boolean(cfg.smtp.url || cfg.smtp.host);
   cfg.mailConfigured = cfg.brevoConfigured || cfg.smtpConfigured;
