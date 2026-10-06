@@ -48,7 +48,6 @@ def aladhan(url):
 
 def psgc(url):
     if url.endswith("/regions/"): return [{"code": "130000000", "name": "NCR", "regionName": "National Capital Region"}, {"code": "010000000", "name": "Ilocos Region", "regionName": "Region I"}]
-    if "/cities-municipalities/" in url and url.endswith("/barangays/"): return [{"code": "137501176", "name": "Barangay 176"}, {"code": "137501001", "name": "Barangay 1"}]
     if url.endswith("/cities-municipalities/"): return [{"code": "137501000", "name": "Caloocan City", "provinceCode": False}]
     return []
 
@@ -151,8 +150,6 @@ def main():
             page.select_option("#region", "130000000")
             expect(page.locator("#city")).to_be_enabled()
             page.select_option("#city", "137501000")
-            expect(page.locator("#barangay")).to_be_enabled()
-            page.select_option("#barangay", "137501176")
             # the ZIP field is a dropdown of the chosen city's own codes: Caloocan's are offered, Quezon City's are not
             expect(page.locator("select#zip")).to_be_enabled()
             expect(page.locator("#zip option[value='1400']")).to_have_count(1)
@@ -294,7 +291,7 @@ def main():
             page.wait_for_url("**/profile")
             expect(page.locator(".details")).to_contain_text("+639171234567")
             expect(page.locator(".details")).to_contain_text("March 25, 1998")
-            expect(page.locator(".details")).to_contain_text("Barangay 176")
+            expect(page.locator(".details")).to_contain_text("Caloocan City")
             page.locator(".profile__button").click()
             page.get_by_role("menuitem", name="Log out").click()
             page.wait_for_url("**/login")

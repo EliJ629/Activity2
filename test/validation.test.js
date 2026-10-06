@@ -59,7 +59,7 @@ test("address: house/street text and ZIP per country", () => {
   assert.notEqual(v.validateZip("PH", "10000"), "");
   assert.notEqual(v.validateZip("PH", "abcd"), "");
   assert.equal(v.validateZip("US", "90210"), "");
-  assert.equal(v.validateZip("US", "90210-1234"), "");
+  assert.notEqual(v.validateZip("US", "90210-1234"), "");   // 9 digits: over the 4 to 8 limit
   assert.notEqual(v.validateZip("US", "9021"), "");
   assert.equal(v.validateZip("GB", "sw1a 1aa"), "");
   assert.equal(v.validateZip("CA", "K1A 0B1"), "");
@@ -171,4 +171,32 @@ test("state and city names as real data writes them are accepted, anything scrip
   for (const bad of ["<script>alert(1)</script>", 'Paris"; DROP TABLE users;--', "a{b}", "x=y", "Manila|Cebu", "$100", "a;b", "Makati<br>", "-Manila", "/Manila", "A", "", "  "]) {
     assert.notEqual(v.validateLocality(bad, "City"), "", JSON.stringify(bad));
   }
+});
+
+test("outside the Philippines a ZIP is 4 to 8 letters or numbers (one space or hyphen allowed in the middle), on top of the country's own format", () => {
+  for (const [country, zip] of [["US", "90210"], ["GB", "SW1A 1AA"], ["CA", "K1A 0B1"], ["JP", "100-0001"], ["BR", "01310-100"], ["NL", "1234 AB"],
+    ["IE", "D02 X285"], ["PT", "1000-001"], ["AU", "5000"], ["DE", "10115"], ["HK", "999077"], ["HK", "ab12"]]) {
+    assert.equal(v.validateZip(country, zip), "", `${country} ${zip}`);
+  }
+  const range = /^ZIP \/ postal code must be 4 to 8 letters or numbers\.$/;
+  for (const [country, zip] of [["HK", "123"], ["HK", "AB"], ["HK", "123456789"], ["US", "90210-1234"], ["GB", "SW1A 1AAA9"], ["IS", "101"]]) {
+    assert.match(v.validateZip(country, zip), range, `${country} ${zip}`);
+  }
+  const chars = /letters and numbers, with at most one space or hyphen/;
+  for (const zip of ["12 34 56", "12-34-56", "1234--56", "12#45", "12345!", "12.345", "\u00C4\u00D6\u00DC12", "<b>1234", "1234;DROP"]) {
+    assert.match(v.validateZip("HK", zip), chars, zip);
+  }
+  assert.equal(v.validateZip("HK", ""), "ZIP / postal code is required.");
+  assert.equal(v.validateZip("HK", "  "), "ZIP / postal code is required.");
+  assert.notEqual(v.validateZip("US", "ABCDE"), "");                       // the right length, but not a US ZIP
+  assert.match(v.validateZip("US", "9021"), /doesn't match the format/);   // 4 digits is allowed in general, not as a US ZIP
+});
+
+test("the Philippines is not affected by the 4 to 8 rule (its ZIP comes from the chosen city's list)", () => {
+  assert.equal(v.validateZip("PH", "1400"), "");
+  assert.equal(v.validateZip("PH", "0802"), "");
+  assert.doesNotMatch(v.validateZip("PH", "123"), /4 to 8/);
+  assert.notEqual(v.validateZip("PH", "123"), "");
+  assert.doesNotMatch(v.validateZip("PH", "14000"), /4 to 8/);
+  assert.notEqual(v.validateZip("PH", "14000"), "");
 });

@@ -62,7 +62,7 @@ export function loadConfig(overrides = {}) {
       ttlMs: num("OTP_TTL_MINUTES", 5) * 60 * 1000,
       maxAttempts: num("OTP_MAX_ATTEMPTS", 3),
       resendMs: num("OTP_RESEND_SECONDS", 60) * 1000,
-      lockMs: num("OTP_LOCK_MINUTES", 15) * 60 * 1000,
+      lockMs: num("OTP_LOCK_SECONDS", 60) * 1000, // after 3 wrong codes: entry and "Resend OTP" stay locked this long, then a new code can be sent
     },
 
     // Login lockout (section 3)

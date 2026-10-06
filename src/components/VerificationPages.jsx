@@ -180,7 +180,7 @@ export function VerifyMobilePage() {
     try { apply(await api("/otp/send", { method: "POST", body: {} })); setCode(""); }
     catch (err) {
       if (err.body?.retryAfter) { (err.status === 423 ? startLock : startResend)(err.body.retryAfter); }
-      setError(err.message);
+      setError(err.status === 423 ? "" : err.message);   // the lock has its own banner, with a live countdown
     } finally { setBusy(false); }
   };
 
@@ -197,7 +197,7 @@ export function VerifyMobilePage() {
       if (c === "OTP_WRONG") setInfo((i) => ({ ...i, attemptsLeft: err.body.attemptsLeft }));
       if (c === "OTP_LOCKED") { startLock(err.body.retryAfter || 0); setInfo((i) => ({ ...i, active: false, attemptsLeft: 0 })); }
       if (c === "OTP_EXPIRED" || c === "OTP_NONE") setInfo((i) => ({ ...i, active: false }));
-      setError(c === "OTP_WRONG" ? `That code isn't right. ${err.body.attemptsLeft} attempt${err.body.attemptsLeft === 1 ? "" : "s"} left.` : err.message);
+      setError(c === "OTP_WRONG" ? `That code isn't right. ${err.body.attemptsLeft} attempt${err.body.attemptsLeft === 1 ? "" : "s"} left.` : c === "OTP_LOCKED" ? "" : err.message);
       setCode("");
     } finally { setBusy(false); }
   };
@@ -214,6 +214,7 @@ export function VerifyMobilePage() {
   }
 
   const locked = lockedFor > 0;
+  const wait = Math.max(resendIn, lockedFor); // the Resend button waits for whichever is longer: the 60 s resend gap, or the lock after 3 wrong codes
   const resumed = new URLSearchParams(window.location.search).get("resumed") === "1";
   return (
     <section className="card auth-card">
@@ -226,7 +227,7 @@ export function VerifyMobilePage() {
       <p>We texted a 6-digit code to <strong data-testid="otp-sent-to">{info.sentTo}</strong>. Enter it below.</p>
 
       {error && <p className="banner banner--error" role="alert">{error}</p>}
-      {locked && <p className="banner banner--error" role="alert">Too many wrong codes. Try again in {formatClock(lockedFor)}.</p>}
+      {locked && <p className="banner banner--error" role="alert">Too many wrong codes. You can request a new code in {formatClock(lockedFor)}.</p>}
 
       <form onSubmit={verify} className="stack" noValidate>
         <div className="field">
@@ -242,14 +243,14 @@ export function VerifyMobilePage() {
         <button type="submit" className="btn btn--primary btn--block" disabled={busy || !info.active || locked || code.length !== 6}>Verify</button>
       </form>
 
-      <button type="button" className="btn btn--secondary btn--block" onClick={send} disabled={busy || resendIn > 0 || locked}>
-        {resendIn > 0 ? `Resend OTP in ${formatClock(resendIn)}` : info.active ? "Resend OTP" : "Send code"}
+      <button type="button" className="btn btn--secondary btn--block" onClick={send} disabled={busy || wait > 0}>
+        {wait > 0 ? `Resend OTP in ${formatClock(wait)}` : info.active ? "Resend OTP" : "Send code"}
       </button>
       <p className="form-note"><Link to="/login">Back to sign in</Link></p>
     </section>
   );
 }
-/*jshdjd
+
 /* ---------- unlock link ---------- */
 export function UnlockPage() {
   const token = new URLSearchParams(window.location.search).get("token") || "";

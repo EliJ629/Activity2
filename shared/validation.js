@@ -208,13 +208,17 @@ export function validateHouseStreet(value) {
   return "";
 }
 
-// State / city / barangay typed as text (or chosen from the PSGC dropdowns for the Philippines)
+// State / city typed as text (or chosen from the PSGC dropdowns for the Philippines)
 export function validateLocality(value, label) {
   const v = String(value ?? "").trim().replace(/\s+/g, " ");
   if (!v) return `${label} is required.`;
   if (v.length < 2) return `${label} must be at least 2 characters.`;
   if (v.length > 100) return `${label} must be 100 characters or less.`;
-  if (!/^[\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N} .,'\u2019()\-]*$/u.test(v)) return `${label} contains characters that aren't allowed.`;
+  // Letters, digits and the punctuation real place names use: . , ' ( ) - / & [ ] and the typographic quotes, dashes and
+  // middle dot they are often written with (Pul-e 'Alam, Friuli-Venezia Giulia, Orroroo/Carrieton, Bikini & Kili).
+  // Anything that could be markup or code (< > " { } ; = | \\ $ ...) is still refused. A name may start with an apostrophe
+  // ('Ali Sabieh).
+  if (!/^[\p{L}\p{M}\p{N}'\u2018\u2019`][\p{L}\p{M}\p{N} .,'\u2018\u2019`\u201C\u201D()\[\]\-\u2013\u2014/&\u00B7]*$/u.test(v)) return `${label} contains characters that aren't allowed.`;
   return "";
 }
 
@@ -242,13 +246,29 @@ export function formatZipRanges(zips) {
   return out.join(", ");
 }
 
+// Outside the Philippines the ZIP is typed (the Philippines picks it from the chosen city's own list), and it has to be
+// 4 to 8 letters or numbers. One space or hyphen may sit between the groups (SW1A 1AA, 100-0001, 01310-100) and isn't
+// counted. On top of that the country's own format still applies where it has one (a US ZIP is 5 digits, so "ABCD" fails).
+// Known consequence of the 4-8 bound: a 9-digit US ZIP+4 and the 3-digit codes of Iceland or the Faroe Islands are refused.
+export const OTHER_ZIP_MIN = 4;
+export const OTHER_ZIP_MAX = 8;
+function validateOtherZip(v) {
+  if (!/^[A-Z0-9]+(?:[ -][A-Z0-9]+)?$/.test(v)) return "ZIP / postal code can only have letters and numbers, with at most one space or hyphen in the middle.";
+  const count = v.replace(/[ -]/g, "").length;
+  if (count < OTHER_ZIP_MIN || count > OTHER_ZIP_MAX) return `ZIP / postal code must be ${OTHER_ZIP_MIN} to ${OTHER_ZIP_MAX} letters or numbers.`;
+  return "";
+}
 export function validateZip(countryCode, value) {
   const v = normalizeZip(value);
   if (!v) return "ZIP / postal code is required.";
+  if (countryCode !== "PH") {
+    const bad = validateOtherZip(v);
+    if (bad) return bad;
+  }
   if (countryHasPostalFormat(countryCode)) {
     return postalCodes.validate(countryCode, v) === true ? "" : "This ZIP / postal code doesn't match the format used in the selected country.";
   }
-  return /^[A-Z0-9][A-Z0-9 \-]{1,9}$/.test(v) ? "" : "Enter a valid ZIP / postal code (2 to 10 letters or numbers).";
+  return "";   // a country with no postal format: the 4 to 8 rule above is the whole check
 }
 
 /* ---------- mobile number ---------- */
@@ -323,7 +343,7 @@ export function validateMobile(countryCode, national, countryLabel = "the select
 /* ---------- whole registration form ---------- */
 // payload = {
 //   firstName, middleInitial, lastName, birthday, email, password, confirmPassword, mobile,
-//   address: { houseStreet, countryCode, state, city, barangay, zip }
+//   address: { houseStreet, countryCode, state, city, zip }
 // }
 // Returns an object of { fieldName: "message" } (empty when everything is valid).
 export function validateRegistration(p, { today = todayParts(), countryLabel } = {}) {
@@ -355,10 +375,6 @@ export function validateRegistration(p, { today = todayParts(), countryLabel } =
   if (state) e.state = state;
   const city = validateLocality(a.city, "City");
   if (city) e.city = city;
-  if (a.countryCode === "PH") {
-    const brgy = validateLocality(a.barangay, "Barangay");
-    if (brgy) e.barangay = brgy;
-  }
   if (a.countryCode) {
     const zip = validateZip(a.countryCode, a.zip);
     if (zip) e.zip = zip;

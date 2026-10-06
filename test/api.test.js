@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { startServer, client, goodPayload, lastLink, lastOtp, sleep, insertVerifiedUser } from "./helpers.js";
 import { canonicalEmail } from "../shared/validation.js";
+import { loadConfig } from "../server/config.js";
 import { createPostalService } from "../server/postal.js";
 import { makeFakeZipApi } from "./fakeZipApi.js";
 
@@ -37,10 +38,10 @@ test("registration validates every rule on the server", async () => {
   const r = await c.post("/api/register", goodPayload({
     firstName: "J", lastName: "Cruz123", middleInitial: "AB", birthday: "09/30/2020",
     email: "juan@mycompany.com", password: "weakpass", confirmPassword: "different", mobile: "12345",
-    address: { houseStreet: "", countryCode: "PH", state: "", city: "", barangay: "", zip: "99999" },
+    address: { houseStreet: "", countryCode: "PH", state: "", city: "", zip: "99999" },
   }));
   assert.equal(r.status, 422);
-  for (const k of ["firstName", "lastName", "middleInitial", "birthday", "email", "password", "confirmPassword", "mobile", "houseStreet", "state", "city", "barangay", "zip"]) {
+  for (const k of ["firstName", "lastName", "middleInitial", "birthday", "email", "password", "confirmPassword", "mobile", "houseStreet", "state", "city", "zip"]) {
     assert.ok(r.data.errors[k], `expected an error for ${k}`);
   }
   assert.match(r.data.errors.birthday, /13 years/);
@@ -336,7 +337,7 @@ test("rate limit: only 5 registration requests per IP per hour", async () => {
 test("non-Philippine country: US ZIP + US mobile prefix, and mobile is checked against the country", async () => {
   const s = await startServer();
   const c = client(s.base);
-  const us = { houseStreet: "1600 Pennsylvania Ave NW", countryCode: "US", state: "District of Columbia", city: "Washington", barangay: "", zip: "20500" };
+  const us = { houseStreet: "1600 Pennsylvania Ave NW", countryCode: "US", state: "District of Columbia", city: "Washington", zip: "20500" };
   const ok = await c.post("/api/register", goodPayload({ mobile: "(202) 555-0123", address: us }));
   assert.equal(ok.status, 201, JSON.stringify(ok.data));
   const wrongZip = await c.post("/api/register", goodPayload({ mobile: "(202) 555-0123", address: { ...us, zip: "1000" } }));
@@ -631,11 +632,93 @@ test("when the API is down the route still answers, with 'unavailable'", async (
 test("a state and city picked from the lists, even with / – ‘ in them, can be registered", async () => {
   const s = await startServer();
   const c = client(s.base);
-  const au = { houseStreet: "1 Main St", countryCode: "AU", state: "South Australia", city: "Orroroo/Carrieton", barangay: "", zip: "5000" };
+  const au = { houseStreet: "1 Main St", countryCode: "AU", state: "South Australia", city: "Orroroo/Carrieton", zip: "5000" };
   const ok = await c.post("/api/register", goodPayload({ mobile: "412 345 678", address: au }));
   assert.equal(ok.status, 201, JSON.stringify(ok.data));
   const script = await c.post("/api/register", goodPayload({ mobile: "412 345 678", address: { ...au, city: "<script>alert(1)</script>" } }));
   assert.equal(script.status, 422);
   assert.ok(script.data.errors.city);
+  await s.close();
+});
+
+test("outside the Philippines the server also holds ZIPs to 4 to 8 letters or numbers", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  const us = { houseStreet: "1600 Pennsylvania Ave NW", countryCode: "US", state: "District of Columbia", city: "Washington", zip: "20500" };
+  const reg = (zip) => c.post("/api/register", goodPayload({ mobile: "(202) 555-0123", address: { ...us, zip } }));
+  for (const zip of ["205", "205001234", "20500-1234", "2 0 5 0 0", "2050#"]) {
+    const r = await reg(zip);
+    assert.equal(r.status, 422, zip);
+    assert.ok(r.data.errors.zip, zip);
+  }
+  assert.match((await reg("205")).data.errors.zip, /4 to 8 letters or numbers/);
+  assert.match((await reg("2050#")).data.errors.zip, /letters and numbers/);
+  assert.match((await reg("9021")).data.errors.zip, /format/);               // 4 digits, but not a US ZIP
+  assert.equal((await reg("20500")).status, 201);
+  await s.close();
+});
+
+test("login: requests that arrive while the account is being locked do not each send an unlock email", async () => {
+  // With every query slowed down, the stretch between "the account is flagged locked" and "its unlock link exists" is wide
+  // (about 0.2 s), so logins sent every 25 ms are sure to land inside it.
+  const s = await startServer(FAST, { dbDelayMs: 100 });
+  const { c, payload } = await registerAndVerify(s);
+  await c.warm();
+  const wrong = { email: payload.email, password: "Wrong!Password11" };
+  await c.post("/api/login", wrong);
+  await c.post("/api/login", wrong);                       // two wrong guesses so far
+  const sent = [c.post("/api/login", wrong)];              // this one crosses the line and locks the account
+  for (let i = 0; i < 40; i++) { await sleep(25); sent.push(c.post("/api/login", wrong)); }
+  const rs = await Promise.all(sent);
+  assert.ok(rs.filter((r) => r.status === 423).length >= 20);
+  const unlocks = s.outbox.list().filter((m) => m.to === payload.email && m.body.includes("/unlock?token="));
+  assert.equal(unlocks.length, 1, `${unlocks.length} unlock emails were sent`);
+  await s.close();
+});
+
+/* ================= OTP lock after 3 wrong codes ================= */
+
+test("the lock after 3 wrong OTP codes defaults to 60 seconds", () => {
+  const saved = { s: process.env.OTP_LOCK_SECONDS, m: process.env.OTP_LOCK_MINUTES };
+  delete process.env.OTP_LOCK_SECONDS; delete process.env.OTP_LOCK_MINUTES;
+  try { assert.equal(loadConfig({}).otp.lockMs, 60_000); }
+  finally { if (saved.s !== undefined) process.env.OTP_LOCK_SECONDS = saved.s; if (saved.m !== undefined) process.env.OTP_LOCK_MINUTES = saved.m; }
+});
+
+test("OTP: after 3 wrong codes a new code can't be requested until the lock is over, then it can", async () => {
+  const s = await startServer({ ...FAST, otp: { resendMs: 0, lockMs: 1200 } });   // a 1.2 s lock stands in for the real 60 s
+  const { c } = await registerAndVerify(s, {}, { mobile: false });
+  const first = lastOtp(s.outbox);
+  const wrong = (i) => String((Number(first) + 1 + i) % 1000000).padStart(6, "0");
+  const smsCount = () => s.outbox.list().filter((m) => m.type === "sms").length;
+
+  assert.equal((await c.post("/api/otp/verify", { code: wrong(0) })).data.attemptsLeft, 2);
+  assert.equal((await c.post("/api/otp/verify", { code: wrong(1) })).data.attemptsLeft, 1);
+  const third = await c.post("/api/otp/verify", { code: wrong(2) });
+  assert.equal(third.status, 423);
+  assert.equal(third.data.code, "OTP_LOCKED");
+  assert.match(third.data.message, /^Too many wrong codes\. You can request a new code in \d+ seconds?\.$/);
+  assert.ok(third.data.retryAfter >= 1 && third.data.retryAfter <= 2);
+
+  // while locked: no new code, and not even the real one
+  const sent = smsCount();
+  const early = await c.post("/api/otp/send", {});
+  assert.equal(early.status, 423);
+  assert.equal(early.data.code, "OTP_LOCKED");
+  assert.match(early.data.message, /request a new code in/);
+  assert.equal((await c.post("/api/otp/verify", { code: first })).status, 423);
+  assert.equal(smsCount(), sent);                                              // nothing was texted
+  const locked = (await c.get("/api/otp/status")).data;
+  assert.ok(locked.lockedForSeconds > 0);
+  assert.equal(locked.active, false);
+
+  // once the lock is over a NEW code can be requested, with 3 fresh attempts
+  await sleep(1500);
+  const again = await c.post("/api/otp/send", {});
+  assert.equal(again.status, 200);
+  assert.equal(again.data.attemptsLeft, 3);
+  assert.equal(again.data.lockedForSeconds, 0);
+  assert.equal(smsCount(), sent + 1);
+  assert.equal((await c.post("/api/otp/verify", { code: lastOtp(s.outbox) })).status, 200);
   await s.close();
 });

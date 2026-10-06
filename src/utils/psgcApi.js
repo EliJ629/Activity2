@@ -1,6 +1,6 @@
 /* ===== utils/psgcApi.js ===== */
 // Philippine address data from the free PSGC API (https://psgc.gitlab.io/api/)
-// Region -> City / Municipality -> Barangay
+// Region -> City / Municipality
 //
 // The API's data predates the Negros Island Region (NIR, created 2024 by RA 12000),
 // so it returns only 17 regions. To give the full 18, NIR is added here and built
@@ -54,8 +54,4 @@ export async function fetchCities(regionCode) {
   const list = toOptions(await getRaw(`/regions/${regionCode}/cities-municipalities/`));
   // Negros provinces now belong to NIR, not Western / Central Visayas
   return apiHasNir ? list : list.filter((c) => !NIR_PROVINCES.includes(c.provinceCode));
-}
-
-export async function fetchBarangays(cityCode) {
-  return toOptions(await getRaw(`/cities-municipalities/${cityCode}/barangays/`));
 }

@@ -156,7 +156,7 @@ export function ProfilePage() {
           <Row label="Email">{user.email} <span className="badge badge--ok">Verified</span></Row>
           <Row label="Mobile">{user.mobileNumber} <span className="badge badge--ok">Verified</span></Row>
           <Row label="Birthday">{formatPlainDate(user.birthday)}</Row>
-          {a && <Row label="Address">{a.houseStreet}{a.barangay ? `, ${a.barangay}` : ""}, {a.city}, {a.state} {a.zip}, {a.country}</Row>}
+          {a && <Row label="Address">{a.houseStreet}, {a.city}, {a.state} {a.zip}, {a.country}</Row>}
           <Row label="Member since">{formatDateTime(user.createdAt)}</Row>
         </dl>
       </div>

@@ -83,8 +83,8 @@ export async function createApp({ config, db, mailer, sms, outbox, postal: posta
   // they run on the same connection as the surrounding BEGIN/COMMIT.
   const INSERT_USER_SQL = `INSERT INTO users (id, first_name, last_name, middle_initial, birthday, password_hash, email, mobile_number, created_at, updated_at)
                             VALUES (@id, @first_name, @last_name, @middle_initial, @birthday, @password_hash, @email, @mobile_number, @now, @now)`;
-  const INSERT_ADDRESS_SQL = `INSERT INTO addresses (id, user_id, house_street, country, country_code, city, state, barangay, zip_code)
-                               VALUES (@id, @user_id, @house_street, @country, @country_code, @city, @state, @barangay, @zip_code)`;
+  const INSERT_ADDRESS_SQL = `INSERT INTO addresses (id, user_id, house_street, country, country_code, city, state, zip_code)
+                               VALUES (@id, @user_id, @house_street, @country, @country_code, @city, @state, @zip_code)`;
 
   /* ---------- tokens (stored hashed, single use) ---------- */
   async function insertToken(userId, type, tokenHash, ttlMs) {
@@ -114,15 +114,25 @@ export async function createApp({ config, db, mailer, sms, outbox, postal: posta
     await mailer.send({ to: user.email, ...verificationEmail({ appName: config.appName, firstName: user.first_name, link, ttlHours: Math.round(config.emailTokenTtlMs / 3600000) }) });
   }
 
+  // Accounts whose lock and unlock link are being set up right now. The account is flagged locked a moment BEFORE its unlock
+  // link exists, and a login arriving in that gap used to see "locked, no live link" and send a link of its own: every new link
+  // cancels the older ones, so a burst of logins meant a burst of emails and only the last link working.
+  const lockingNow = new Set();
   async function lockUser(user) {
-    const until = nowIso(Date.now() + config.login.unlockCooldownMs);
-    await db.prepare("UPDATE users SET failed_login_attempts = ?, is_locked = TRUE, lockout_until = ?, updated_at = ? WHERE id = ?")
-      .run(config.login.maxFailures, until, nowIso(), user.id);
-    const raw = await issueLinkToken(user.id, "account_unlock", config.login.unlockTokenTtlMs);
-    const link = `${config.baseUrl}/unlock?token=${encodeURIComponent(raw)}`;
+    if (lockingNow.has(user.id)) return;
+    lockingNow.add(user.id);
     try {
-      await mailer.send({ to: user.email, ...unlockEmail({ appName: config.appName, firstName: user.first_name, link, cooldownSeconds: Math.round(config.login.unlockCooldownMs / 1000) }) });
-    } catch (err) { console.error("Could not send unlock email:", err.message); }
+      const until = nowIso(Date.now() + config.login.unlockCooldownMs);
+      await db.prepare("UPDATE users SET failed_login_attempts = ?, is_locked = TRUE, lockout_until = ?, updated_at = ? WHERE id = ?")
+        .run(config.login.maxFailures, until, nowIso(), user.id);
+      const raw = await issueLinkToken(user.id, "account_unlock", config.login.unlockTokenTtlMs);
+      const link = `${config.baseUrl}/unlock?token=${encodeURIComponent(raw)}`;
+      try {
+        await mailer.send({ to: user.email, ...unlockEmail({ appName: config.appName, firstName: user.first_name, link, cooldownSeconds: Math.round(config.login.unlockCooldownMs / 1000) }) });
+      } catch (err) { console.error("Could not send unlock email:", err.message); }
+    } finally {
+      lockingNow.delete(user.id);
+    }
   }
 
   /* ---------- OTP (section 2c) ---------- */
@@ -139,6 +149,8 @@ const timeZoneFor = async (userId) => {
     return "UTC";
   }
 };
+  // Shown whenever a code is refused or can't be sent because of the lock that follows 3 wrong codes
+  const lockedMessage = (seconds) => `Too many wrong codes. You can request a new code in ${seconds} second${seconds === 1 ? "" : "s"}.`;
   async function otpState(user) {
     const last = await q.latestToken.get(user.id, "mobile_otp");
     const now = Date.now();
@@ -165,7 +177,7 @@ async function sendOtp(user) {
             error: {
                 status: 423,
                 code: "OTP_LOCKED",
-                message: "Too many wrong codes. Try again later.",
+                message: lockedMessage(state.lockedForSeconds),
                 retryAfter: state.lockedForSeconds
             }
         };
@@ -268,7 +280,7 @@ async function sendOtp(user) {
       emailVerified: Boolean(u.email_verified_at),
       mobileVerified: Boolean(u.mobile_verified),
       createdAt: u.created_at,
-      address: a ? { houseStreet: a.house_street, country: a.country, countryCode: a.country_code, state: a.state, city: a.city, barangay: a.barangay || "", zip: a.zip_code } : null,
+      address: a ? { houseStreet: a.house_street, country: a.country, countryCode: a.country_code, state: a.state, city: a.city, zip: a.zip_code } : null,
     };
   };
 
@@ -415,7 +427,6 @@ async function sendOtp(user) {
         state: str(a.state).trim().replace(/\s+/g, " "),
         city: str(a.city).trim().replace(/\s+/g, " "),
         cityCode: str(a.cityCode).trim(), // Philippines: the PSGC code of the chosen city (used to check the ZIP)
-        barangay: str(a.barangay).trim().replace(/\s+/g, " "),
         zip: normalizeZip(str(a.zip)),
       },
     };
@@ -452,7 +463,7 @@ async function sendOtp(user) {
         await tx.prepare(INSERT_USER_SQL)
           .run({ id, first_name: payload.firstName, last_name: payload.lastName, middle_initial: payload.middleInitial || null, birthday, password_hash: passwordHash, email: payload.email, mobile_number: mobile, now });
         await tx.prepare(INSERT_ADDRESS_SQL)
-          .run({ id: crypto.randomUUID(), user_id: id, house_street: payload.address.houseStreet, country: country.name, country_code: country.code, city: payload.address.city, state: payload.address.state, barangay: payload.address.barangay || null, zip_code: payload.address.zip });
+          .run({ id: crypto.randomUUID(), user_id: id, house_street: payload.address.houseStreet, country: country.name, country_code: country.code, city: payload.address.city, state: payload.address.state, zip_code: payload.address.zip });
       });
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -545,7 +556,7 @@ async function sendOtp(user) {
     const last = await q.latestToken.get(user.id, "mobile_otp");
     const now = Date.now();
     if (last?.locked_until && ms(last.locked_until) > now) {
-      return res.status(423).json({ code: "OTP_LOCKED", message: "Too many wrong codes. Please try again later.", retryAfter: secondsUntil(last.locked_until) });
+      return res.status(423).json({ code: "OTP_LOCKED", message: lockedMessage(secondsUntil(last.locked_until)), retryAfter: secondsUntil(last.locked_until) });
     }
     if (!last || last.used_at) return res.status(400).json({ code: "OTP_NONE", message: "There is no active code. Request a new one." });
     if (ms(last.expired_at) <= now) return res.status(400).json({ code: "OTP_EXPIRED", message: "This code has expired. Request a new one." });
@@ -555,14 +566,14 @@ async function sendOtp(user) {
     // meant nothing.) If no attempt is left, the code is closed.
     const taken = await db.prepare("UPDATE verification_tokens SET attempts = attempts + 1 WHERE id = ? AND used_at IS NULL AND attempts < ? RETURNING attempts").get(last.id, config.otp.maxAttempts);
     if (!taken) {
-      return res.status(423).json({ code: "OTP_LOCKED", message: "Too many wrong codes. Verification is locked for a while.", retryAfter: Math.ceil(config.otp.lockMs / 1000) });
+      return res.status(423).json({ code: "OTP_LOCKED", message: lockedMessage(Math.ceil(config.otp.lockMs / 1000)), retryAfter: Math.ceil(config.otp.lockMs / 1000) });
     }
     const attempts = taken.attempts;
     if (!safeEqual(otpHash(user.id, code), last.token_hash)) {
       if (attempts >= config.otp.maxAttempts) {
         const until = nowIso(now + config.otp.lockMs);
         await db.prepare("UPDATE verification_tokens SET used_at = ?, locked_until = ? WHERE id = ?").run(nowIso(), until, last.id);
-        return res.status(423).json({ code: "OTP_LOCKED", message: "Too many wrong codes. Verification is locked for a while.", retryAfter: secondsUntil(until) });
+        return res.status(423).json({ code: "OTP_LOCKED", message: lockedMessage(secondsUntil(until)), retryAfter: secondsUntil(until) });
       }
       return res.status(400).json({ code: "OTP_WRONG", message: "That code isn't right.", attemptsLeft: config.otp.maxAttempts - attempts });
     }

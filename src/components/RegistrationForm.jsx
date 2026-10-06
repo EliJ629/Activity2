@@ -24,7 +24,7 @@ const EMPTY_FORM = {
   mobile: "",
   address: {
     houseStreet: "", countryCode: "PH",
-    region: "", regionName: "", city: "", cityName: "", barangay: "", barangayName: "",
+    region: "", regionName: "", city: "", cityName: "",
     stateText: "", cityText: "", zip: "",
   },
 };
@@ -48,14 +48,13 @@ function toPayload(form) {
       state: ph ? a.regionName : a.stateText,
       city: ph ? a.cityName : a.cityText,
       cityCode: ph ? a.city : "", // the PSGC code of the chosen city: the server uses it to check the ZIP
-      barangay: ph ? a.barangayName : "",
       zip: a.zip,
     },
   };
 }
 
 const ALL_FIELDS = ["firstName", "middleInitial", "lastName", "birthday", "email", "password", "confirmPassword",
-  "mobile", "houseStreet", "countryCode", "state", "city", "barangay", "zip"];
+  "mobile", "houseStreet", "countryCode", "state", "city", "zip"];
 
 export function RegistrationForm() {
   const [form, setForm] = useState(EMPTY_FORM);

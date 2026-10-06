@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS users (
 -- EXTRA: case-insensitive email uniqueness (emails are stored lower-case already; this makes it a rule of the database)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (lower(email));
 
+-- The barangay is no longer part of the address. A database created before that still has an optional `barangay` column in
+-- this table; nothing reads or writes it any more and it can stay. To remove it (this deletes the old values for good):
+--     ALTER TABLE addresses DROP COLUMN IF EXISTS barangay;
 CREATE TABLE IF NOT EXISTS addresses (
   id            UUID PRIMARY KEY,
   user_id       UUID         NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -43,7 +46,6 @@ CREATE TABLE IF NOT EXISTS addresses (
   country_code  VARCHAR(2)   NOT NULL,                                      -- EXTRA: ISO 3166-1 alpha-2 (drives time zone + phone prefix)
   city          VARCHAR(100) NOT NULL,
   state         VARCHAR(100) NOT NULL,
-  barangay      VARCHAR(100),                                               -- EXTRA: kept from the existing PSGC address feature (Philippines)
   zip_code      VARCHAR(20)  NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_addresses_user ON addresses (user_id);
@@ -120,7 +122,6 @@ BEGIN
       ALTER COLUMN country_code TYPE VARCHAR(2),
       ALTER COLUMN city TYPE VARCHAR(100),
       ALTER COLUMN state TYPE VARCHAR(100),
-      ALTER COLUMN barangay TYPE VARCHAR(100),
       ALTER COLUMN zip_code TYPE VARCHAR(20);
 
     ALTER TABLE verification_tokens

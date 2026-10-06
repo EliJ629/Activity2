@@ -1,13 +1,13 @@
 /* ===== components/AddressFields.jsx ===== */
 import { useEffect, useMemo, useState } from "react";
-import { fetchRegions, fetchCities, fetchBarangays } from "../utils/psgcApi.js";
+import { fetchRegions, fetchCities } from "../utils/psgcApi.js";
 import { fetchGeoStates, fetchGeoCities } from "../utils/geoApi.js";
 import { listCountries } from "../../shared/countries.js";
 
 // Address value shape:
-// { houseStreet, countryCode, region, regionName, city, cityName, barangay, barangayName,
+// { houseStreet, countryCode, region, regionName, city, cityName,
 //   stateText, cityText, zip }
-// Philippines: region / city / barangay hold PSGC codes (the *Name fields hold the
+// Philippines: region / city hold PSGC codes (the *Name fields hold the
 // display names) and come from the PSGC API dropdowns.
 // Other countries: state and city are dropdowns from the Country State City API (through our server) whenever the
 // lists are available - stateCode / cityKey remember the pick, stateText / cityText hold the names that get saved - and
@@ -116,7 +116,6 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipOption
   const countries = useMemo(() => listCountries(), []);
   const regions = useOptions(fetchRegions, isPH ? "all" : null);
   const cities = useOptions(fetchCities, isPH ? value.region || null : null);
-  const barangays = useOptions(fetchBarangays, isPH ? value.city || null : null);
 
   // Other countries: states of the country, then cities of the state (lists come from our server; empty = not available)
   const geoStates = useOptions(fetchGeoStates, !isPH && value.countryCode && !value.stateManual ? value.countryCode : null);
@@ -132,13 +131,12 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipOption
 
   // Changing the country clears everything below it (each country has its own places and ZIP format)
   const setCountry = (code) =>
-    set({ countryCode: code, region: "", regionName: "", city: "", cityName: "", barangay: "", barangayName: "", stateText: "", cityText: "", zip: "",
+    set({ countryCode: code, region: "", regionName: "", city: "", cityName: "", stateText: "", cityText: "", zip: "",
       stateCode: "", cityKey: "", stateManual: false, cityManual: false }, ["countryCode"]);
   // Changing a parent resets the fields below it
   // (the ZIP goes too: it was one of the old city's codes)
-  const setRegion = (r) => set({ region: r.code, regionName: r.name, city: "", cityName: "", barangay: "", barangayName: "", zip: "" }, ["state"]);
-  const setCity = (c) => set({ city: c.code, cityName: c.name, barangay: "", barangayName: "", zip: "" }, ["city"]);
-  const setBarangay = (b) => set({ barangay: b.code, barangayName: b.name }, ["barangay"]);
+  const setRegion = (r) => set({ region: r.code, regionName: r.name, city: "", cityName: "", zip: "" }, ["state"]);
+  const setCity = (c) => set({ city: c.code, cityName: c.name, zip: "" }, ["city"]);
   // Other countries
   const pickState = (st) => (st.code === OTHER
     ? set({ stateManual: true, stateCode: "", stateText: "", cityKey: "", cityText: "", cityManual: false }, ["state"])
@@ -197,8 +195,6 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipOption
               options={regions} onSelect={setRegion} onBlur={() => onTouch(["state"])} error={errors.state} />
             <ApiSelect id="city" label="City" placeholder="Select city" value={value.city}
               options={cities} disabled={!value.region} onSelect={setCity} onBlur={() => onTouch(["city"])} error={errors.city} />
-            <ApiSelect id="barangay" label="Barangay" placeholder="Select barangay" value={value.barangay}
-              options={barangays} disabled={!value.city} onSelect={setBarangay} onBlur={() => onTouch(["barangay"])} error={errors.barangay} />
           </>
         ) : (
           <>
@@ -229,9 +225,9 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipOption
             onChange={(v) => set({ zip: v }, ["zip"])} onBlur={() => onTouch(["zip"])} error={errors.zip} />
         ) : (
           // other countries, or a Philippine city whose list couldn't be loaded: type it (the server still checks it)
-          <PlainField id="zip" label="ZIP / Postal Code" value={value.zip} maxLength={12} autoComplete="postal-code"
+          <PlainField id="zip" label="ZIP / Postal Code" value={value.zip} maxLength={isPH ? 12 : 9} autoComplete="postal-code"
             placeholder={isPH ? "e.g. 1400" : ""}
-            hint={isPH ? "We couldn't load this city's postal codes. Type yours and we'll check it when you submit." : ""}
+            hint={isPH ? "We couldn't load this city's postal codes. Type yours and we'll check it when you submit." : "4 to 8 letters or numbers"}
             onChange={(v) => set({ zip: v }, ["zip"])} onBlur={() => onTouch(["zip"])} error={errors.zip} />
         )}
         {stateList && <p className="form-note field--full">State and city lists: Country State City database (ODbL).</p>}
