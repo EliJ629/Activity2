@@ -1,6 +1,7 @@
 /* ===== components/HolidayViewer.jsx ===== */
 // Year selector (2020-2027) + month calendar + holiday cards.
-// The holidays are fetched from the public holiday API each time the year changes.
+// The holidays of the picked year are fetched from this app's API (GET /api/holidays) each time the year changes: the holidays
+// the government declared for that year, from its proclamations.
 import { useEffect, useMemo, useState } from "react";
 import { MIN_YEAR, MAX_YEAR } from "../utils/holidays.js";
 import { loadHolidays, HOLIDAY_TYPES } from "../utils/holidayApi.js";
@@ -65,7 +66,8 @@ export function HolidayViewer() {
   const [month, setMonth] = useState(today.y === initialYear ? today.m : 1);
   const [filter, setFilter] = useState("All");
   const [scope, setScope] = useState("month"); // "month" | "year"
-  const [state, setState] = useState({ holidays: [], source: "", loading: true });
+  const [state, setState] = useState({ holidays: [], source: "", proclamation: "", pending: [], loading: true });
+  const [attempt, setAttempt] = useState(0);                  // "Try again" asks for the same year once more
 
   // Asynchronous request each time a year is selected
   useEffect(() => {
@@ -75,7 +77,7 @@ export function HolidayViewer() {
       if (!cancelled) setState({ ...r, loading: false });
     });
     return () => { cancelled = true; };
-  }, [year]);
+  }, [year, attempt]);
 
   const counts = Object.fromEntries(TYPE_KEYS.map((t) => [t, state.holidays.filter((h) => h.type === t).length]));
   const visible = state.holidays.filter((h) => filter === "All" || h.type === filter);
@@ -113,6 +115,11 @@ export function HolidayViewer() {
 
       {state.loading ? (
         <p className="holidays__status" role="status">Loading holidays...</p>
+      ) : state.source === "error" ? (
+        <div className="holidays__status" role="alert">
+          <p>The holidays for {year} could not be loaded. Please check your connection and try again.</p>
+          <button type="button" className="btn btn--secondary" onClick={() => setAttempt((a) => a + 1)}>Try again</button>
+        </div>
       ) : (
         <>
           <div className="cal-nav">
@@ -147,10 +154,9 @@ export function HolidayViewer() {
           )}
 
           <p className="holidays__source">
-            {state.source === "api"
-              ? "Source: Nager.Date holiday API + official Philippine holiday rules. Time zone: Asia/Manila."
-              : "Holiday API unavailable. Showing official Philippine holiday rules only. Islamic holidays need the API."}
-            {hasExpected && " Dates marked \"Expected\" are calculated from the Hijri calendar; the official date is set by the NCMF proclamation."}
+            Source: the government's proclamations (Official Gazette){state.proclamation ? `: ${state.proclamation}` : ""}. Every nationwide holiday
+            declared for {year} is listed; special working days (not a day off) and local holidays are not. Time zone: Asia/Manila.
+            {state.pending.length > 0 && ` ${state.pending.join(" and ")} for ${year} will be declared by separate proclamation${hasExpected ? "; the dates marked \"Expected\" are calculated from the Hijri calendar until then" : ""}.`}
           </p>
         </>
       )}

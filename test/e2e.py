@@ -1,7 +1,7 @@
 """
 End-to-end browser test (Playwright + Chromium).
 Starts the real server on a temporary database, mocks the four public APIs the
-browser calls (PSGC, Google DNS, Nager.Date, Aladhan) and walks through the whole flow:
+browser calls (PSGC, Google DNS) and walks through the whole flow:
 register -> email link -> mobile OTP -> login -> lockout -> unlock -> landing page -> modal -> holidays.
 
 Run:  npm run build && python3 test/e2e.py
@@ -25,30 +25,9 @@ def route_json(page, pattern, handler):
         route.fulfill(status=200, content_type="application/json", headers={"access-control-allow-origin": "*"}, body=json.dumps(body))
     page.route(pattern, h)
 
-def nager(url):
-    year = int(re.search(r"PublicHolidays/(\d{4})/PH", url).group(1))
-    base = [
-        {"date": f"{year}-01-01", "name": "New Year's Day", "types": ["Public"], "global": True},
-        {"date": f"{year}-04-09", "name": "The Day of Valor", "types": ["Public"], "global": True},
-        {"date": f"{year}-06-12", "name": "Independence Day", "types": ["Public"], "global": True},
-        {"date": f"{year}-08-30", "name": "Regional observance", "types": ["Observance"], "global": True},
-        {"date": f"{year}-09-09", "name": "Local city holiday", "types": ["Public"], "global": False},
-    ]
-    if year == 2026:  # the API lists the Islamic holidays for 2026 only, so 2027 must use the Hijri fallback
-        base += [{"date": "2026-03-20", "name": "Eid al-Fitr", "types": ["Public"], "global": True},
-                 {"date": "2026-05-27", "name": "Eid al-Adha", "types": ["Public"], "global": True}]
-    return base
-
-def aladhan(url):
-    d = re.search(r"hToG/(\d{2})-(\d{2})-(\d{4})", url)
-    day, month, hy = d.groups()
-    table = {("01", "10", "1448"): "10-03-2027", ("10", "12", "1448"): "17-05-2027"}
-    date = table.get((day, month, hy), "01-01-2001")
-    return {"code": 200, "status": "OK", "data": {"gregorian": {"date": date}}}
-
 def psgc(url):
     if url.endswith("/provinces/"): return [{"code": "012800000", "name": "Ilocos Norte"}, {"code": "064500000", "name": "Negros Occidental"}]
-    if url.endswith("/regions/130000000/cities-municipalities/"): return [{"code": "137501000", "name": "Caloocan City", "provinceCode": False}]   # Metro Manila: cities hang off the region
+    if url.endswith("/regions/130000000/cities/"): return [{"code": "137501000", "name": "Caloocan City", "provinceCode": False}]   # Metro Manila: its cities hang off the region
     return []
 
 def dns(url): return {"Status": 0, "Answer": [{"type": 15, "data": "10 mx.example.net."}]}
@@ -56,8 +35,6 @@ def dns(url): return {"Status": 0, "Answer": [{"type": 15, "data": "10 mx.exampl
 def mock_apis(page):
     route_json(page, "**/psgc.gitlab.io/**", psgc)
     route_json(page, "**/dns.google/**", dns)
-    route_json(page, "**/date.nager.at/**", nager)
-    route_json(page, "**/api.aladhan.com/**", aladhan)
 
 def dev_items(page):
     return page.evaluate("fetch('/api/dev/outbox').then(r=>r.json()).then(j=>j.items)")
@@ -243,22 +220,29 @@ def main():
             page.select_option("#holiday-year", "2026")
             page.get_by_role("button", name="Whole 2026").click()
             lst = page.locator("[data-testid=holiday-list]")
+            # the government's list for 2026 (Proclamation No. 1006, then No. 1189 and 1264 for the Eid days): 20 days off
+            expect(lst.locator("li")).to_have_count(20)
             expect(lst).to_contain_text("January 1, 2026 – New Year's Day")
-            expect(lst).to_contain_text("March 20, 2026 – Eid al-Fitr")
+            expect(lst).to_contain_text("March 20, 2026 – Eid'l Fitr (Feast of Ramadhan)")
+            expect(lst).to_contain_text("May 27, 2026 – Eid'l Adha (Feast of Sacrifice)")
+            expect(lst).to_contain_text("November 2, 2026 – All Souls' Day")        # a day off in 2026
+            expect(lst).to_contain_text("Black Saturday")
+            expect(lst).not_to_contain_text("February 25")                         # the EDSA anniversary is a special WORKING day in 2026
             expect(lst.locator(".badge--islamic").first).to_have_text("Islamic Holiday")
             expect(lst.locator(".holiday-item--regular .badge--regular").first).to_have_text("Regular Holiday")
             expect(lst.locator(".holiday-item--special .badge--special").first).to_have_text("Special Non-Working Day")
-            expect(lst).not_to_contain_text("Regional observance")     # observances are not days off
-            expect(lst).not_to_contain_text("Local city holiday")      # local (non-national) holidays are skipped
-            expect(lst).to_contain_text("Black Saturday")              # built-in rule merged with the API list
+            expect(page.locator(".holidays__source")).to_contain_text("Proclamation No. 1006")
             shot(page, "09-holidays-mobile")
 
+            page.select_option("#holiday-year", "2024")
+            expect(lst).to_contain_text("August 23, 2024 – Ninoy Aquino Day")      # moved from August 21 by a later proclamation
+            expect(lst).not_to_contain_text("August 21, 2024")
+
             page.select_option("#holiday-year", "2027")
-            expect(page.get_by_role("button", name="Whole 2027")).to_be_visible()
             page.get_by_role("button", name="Whole 2027").click()
-            expect(lst).to_contain_text("March 10, 2027 – Eid'l Fitr (expected)")     # from the Hijri-calendar API
-            expect(lst).to_contain_text("May 17, 2027 – Eid'l Adha (expected)")
-            expect(lst.locator(".badge--note", has_text="Expected date").first).to_be_visible()
+            expect(lst).to_contain_text("November 2, 2027 – All Souls' Day")
+            # the 2027 Eid proclamations are not issued yet; the page says so (and shows expected dates when the Hijri calendar API answers)
+            expect(page.locator(".holidays__source")).to_contain_text("will be declared by separate proclamation")
             page.select_option("#holiday-year", "2020")
             expect(lst).to_contain_text("January 25, 2020 – Chinese New Year")
             years = page.locator("#holiday-year option").all_inner_texts()

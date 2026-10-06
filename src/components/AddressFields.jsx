@@ -1,6 +1,6 @@
 /* ===== components/AddressFields.jsx ===== */
 import { useEffect, useMemo, useState } from "react";
-import { fetchProvinces, fetchCities } from "../utils/psgcApi.js";
+import { fetchProvinces, fetchPlaces } from "../utils/psgcApi.js";
 import { fetchGeoStates, fetchGeoCities } from "../utils/geoApi.js";
 import { listCountries } from "../../shared/countries.js";
 
@@ -115,7 +115,13 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipOption
   const isPH = value.countryCode === "PH";
   const countries = useMemo(() => listCountries(), []);
   const provinces = useOptions(fetchProvinces, isPH ? "all" : null);
-  const cities = useOptions(fetchCities, isPH ? value.province || null : null);
+  // The City list holds the province's CITIES (Ilocos Norte: 2). A province with no city lists its municipalities instead, and
+  // a person whose place is a municipality can switch the list with the checkbox under the field (see utils/psgcApi.js).
+  const [munMode, setMunMode] = useState(false);
+  const cities = useOptions(fetchPlaces, isPH && value.province ? `${value.province}${munMode ? "|m" : ""}` : null);
+  const placeKind = cities.list[0]?.kind;                       // "city", or "municipality" when that is all there is
+  const showMunSwitch = isPH && Boolean(value.province) && !cities.loading && !cities.error && (munMode || placeKind === "city");
+  const noCityInProvince = isPH && Boolean(value.province) && !munMode && placeKind === "municipality";
 
   // Other countries: states of the country, then cities of the state (lists come from our server; empty = not available)
   const geoStates = useOptions(fetchGeoStates, !isPH && value.countryCode && !value.stateManual ? value.countryCode : null);
@@ -130,12 +136,21 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipOption
   const set = (patch, keys) => onChange({ ...value, ...patch }, keys);
 
   // Changing the country clears everything below it (each country has its own places and ZIP format)
-  const setCountry = (code) =>
+  const setCountry = (code) => {
+    setMunMode(false);
     set({ countryCode: code, province: "", provinceName: "", city: "", cityName: "", stateText: "", cityText: "", zip: "",
       stateCode: "", cityKey: "", stateManual: false, cityManual: false }, ["countryCode"]);
+  };
   // Changing a parent resets the fields below it
   // (the ZIP goes too: it was one of the old city's codes)
-  const setProvince = (p) => set({ province: p.code, provinceName: p.name, city: "", cityName: "", zip: "" }, ["state"]);
+  const setProvince = (p) => {
+    setMunMode(false);
+    set({ province: p.code, provinceName: p.name, city: "", cityName: "", zip: "" }, ["state"]);
+  };
+  const toggleMunicipality = (on) => {
+    setMunMode(on);
+    set({ city: "", cityName: "", zip: "" }, []);                 // the old pick belonged to the other list
+  };
   const setCity = (c) => set({ city: c.code, cityName: c.name, zip: "" }, ["city"]);
   // Other countries
   const pickState = (st) => (st.code === OTHER
@@ -193,8 +208,15 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipOption
           <>
             <ApiSelect id="province" label="Province" placeholder="Select province" value={value.province}
               options={provinces} onSelect={setProvince} onBlur={() => onTouch(["state"])} error={errors.state} />
-            <ApiSelect id="city" label="City" placeholder={value.province && !cities.loading && !cities.error && cities.list.length === 0 ? "No cities listed" : "Select city"} value={value.city}
-              options={cities} disabled={!value.province} onSelect={setCity} onBlur={() => onTouch(["city"])} error={errors.city} />
+            <ApiSelect id="city" label="Municipality/City"
+              placeholder={value.province && !cities.loading && !cities.error && cities.list.length === 0 ? "Nothing listed" : "Select municipality/city"}
+              value={value.city} options={cities} disabled={!value.province} onSelect={setCity} onBlur={() => onTouch(["city"])} error={errors.city} />
+            {showMunSwitch && (
+              <label className="field__hint field--full">
+                <input type="checkbox" id="municipality-switch" checked={munMode} onChange={(e) => toggleMunicipality(e.target.checked)} /> My place is a municipality, not a city
+              </label>
+            )}
+            {noCityInProvince && <p className="field__hint field--full">This province has no city, so its municipalities are listed.</p>}
           </>
         ) : (
           <>

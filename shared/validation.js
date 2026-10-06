@@ -373,7 +373,7 @@ export function validateRegistration(p, { today = todayParts(), countryLabel } =
   if (!a.countryCode) e.countryCode = "Select a country.";
   const state = validateLocality(a.state, a.countryCode === "PH" ? "Province" : "State / province");
   if (state) e.state = state;
-  const city = validateLocality(a.city, "City");
+  const city = validateLocality(a.city, a.countryCode === "PH" ? "Municipality/City" : "City");
   if (city) e.city = city;
   if (a.countryCode) {
     const zip = validateZip(a.countryCode, a.zip);

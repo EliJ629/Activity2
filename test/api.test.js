@@ -735,3 +735,72 @@ test("timestamps always come back as ISO text with exactly three fraction digits
   for (const v of ["2026-10-06 10:01:56.67", "2026-10-06 10:01:56", "2026-10-06 10:01:56.5"]) assert.ok(!Number.isNaN(Date.parse(read(v))), v);
   assert.equal(pg.types.getTypeParser(1082)("2026-10-06"), "2026-10-06");                  // a DATE stays plain text
 });
+
+/* ================= holidays: the government's lists, per year ================= */
+
+test("GET /api/holidays gives a year's holidays as the government declared them", async () => {
+  const s = await startServer();
+  const r = await client(s.base).get("/api/holidays?year=2026");
+  assert.equal(r.status, 200);
+  assert.equal(r.data.year, 2026);
+  assert.equal(r.data.source, "proclamations");
+  assert.match(r.data.proclamation, /Proclamation No\. 1006/);
+  assert.deepEqual(r.data.pending, []);
+  assert.equal(r.data.holidays.length, 20);
+  const on = (date) => r.data.holidays.filter((h) => h.date === date);
+  assert.deepEqual(on("2026-11-02").map((h) => [h.name, h.type]), [["All Souls' Day", "special"]]);       // a day off, which the old list did not have
+  assert.deepEqual(on("2026-03-20").map((h) => h.type), ["islamic"]);                                    // Eid'l Fitr, by Proclamation No. 1189
+  assert.deepEqual(on("2026-02-25"), []);                                                                // a special working day: not a holiday
+  assert.deepEqual(on("2026-08-31").map((h) => [h.name, h.type]), [["National Heroes Day", "regular"]]);
+  await s.close();
+});
+
+test("GET /api/holidays: a year that was moved by a later proclamation shows the final date", async () => {
+  const s = await startServer();
+  const r = await client(s.base).get("/api/holidays?year=2024");
+  assert.ok(r.data.holidays.some((h) => h.date === "2024-08-23" && h.name === "Ninoy Aquino Day"));
+  assert.ok(!r.data.holidays.some((h) => h.date === "2024-08-21"));
+  await s.close();
+});
+
+test("GET /api/holidays refuses a missing or odd year, and says which years exist", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  for (const url of ["/api/holidays", "/api/holidays?year=abc", "/api/holidays?year=2026.5", "/api/holidays?year=", "/api/holidays?year=2026;DROP"]) {
+    const r = await c.get(url);
+    assert.equal(r.status, 400, url);
+    assert.equal(r.data.code, "BAD_YEAR", url);
+  }
+  for (const year of [2019, 2028, 1999]) {
+    const r = await c.get(`/api/holidays?year=${year}`);
+    assert.equal(r.status, 404, String(year));
+    assert.equal(r.data.code, "NO_HOLIDAY_LIST");
+    assert.match(r.data.message, /Available: 2020 to 2027/);
+  }
+  await s.close();
+});
+
+test("GET /api/holidays: 2027's Eid days come with expected dates, and the year still works when the Hijri calendar is down", async () => {
+  const s = await startServer();
+  const r = await client(s.base).get("/api/holidays?year=2027");
+  assert.deepEqual(r.data.pending, ["Eid'l Fitr (Feast of Ramadhan)", "Eid'l Adha (Feast of Sacrifice)"]);
+  assert.equal(r.data.holidays.filter((h) => h.expected && h.type === "islamic").length, 2);
+  await s.close();
+
+  const { createHolidayService } = await import("../server/holidayService.js");
+  const { makeFakeAladhan } = await import("./fakeAladhan.js");
+  const down = await startServer({}, { holidays: createHolidayService({ fetchImpl: makeFakeAladhan({ mode: "down" }).fetchImpl }) });
+  const r2 = await client(down.base).get("/api/holidays?year=2027");
+  assert.equal(r2.status, 200);
+  assert.equal(r2.data.holidays.length, 18);
+  assert.equal(r2.data.pending.length, 2);
+  await down.close();
+});
+
+test("the browser may call only the address and DNS services directly; holidays and ZIP codes go through this server", async () => {
+  const s = await startServer();
+  const csp = (await fetch(s.base + "/api/csrf")).headers.get("content-security-policy");
+  const connect = /connect-src ([^;]*)/.exec(csp)[1].split(" ");
+  assert.deepEqual(connect.sort(), ["'self'", "https://dns.google", "https://psgc.gitlab.io"]);
+  await s.close();
+});
