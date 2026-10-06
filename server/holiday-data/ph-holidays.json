@@ -1,5 +1,5 @@
 {
- "_about": "Philippine nationwide holidays as DECLARED by the government, per year: the regular holidays, special (non-working) days and additional special (non-working) days of each year's proclamation, with the later proclamations that moved or added days (Eid'l Fitr, Eid'l Adha, elections, bridge days) already applied. Special WORKING days (e.g. EDSA anniversary on Feb 25 in 2022, 2025-2027) are working days and are not listed. Local holidays of single cities or provinces are not nationwide and are not listed. Sources: Official Gazette of the Philippines (officialgazette.gov.ph/nationwide-holidays/{year}), Malacanang / PCO and PNA releases, and the proclamation texts (Supreme Court E-Library, Lawphil). To correct or extend a year, edit its entry here: [date, name, type] with type regular | special | islamic.",
+ "_about": "Philippine nationwide holidays as DECLARED by the government, per year: the regular holidays, special (non-working) days and additional special (non-working) days of each year's proclamation, with the later proclamations that moved or added days (Eid'l Fitr, Eid'l Adha, elections, bridge days) already applied; a 'note' says where a day was moved from. Also listed, as 'islamic', are the regional Muslim legal holidays (PD 1083) the product owner asked for: Amun Jadid and Maulidin Nabi 2020, Lailatul Isra Wal Mi'raj 2023. These are observed in the Muslim provinces and cities, not nationwide, and the other years' regional Muslim holidays are not listed yet. Special WORKING days (e.g. the EDSA anniversary on Feb 25 in 2022 and 2025-2027) are working days and are not listed. Local holidays of single cities or provinces are not listed. Eid'l Fitr and Eid'l Adha of a year whose proclamation has not been issued are listed as 'pending' (2027), not given a guessed date. All Souls' Day (Nov 2) is listed in the years it was declared (2020, 2021, 2023, 2024, 2026, 2027); in 2022 and 2025 it was not. Sources: Official Gazette of the Philippines (officialgazette.gov.ph/nationwide-holidays/{year}), Malacanang / PCO and PNA releases, the proclamation texts (Supreme Court E-Library, Lawphil). To correct or extend a year, edit its entry here: [date, name, type, optional note] with type regular | special | islamic.",
  "years": {
   "2020": {
    "proclamation": "Proclamation No. 845, s. 2019 (Eid'l Fitr and Eid'l Adha by separate proclamations)",
@@ -48,7 +48,8 @@
     [
      "2020-05-25",
      "Eid'l Fitr (Feast of Ramadhan)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by separate proclamation."
     ],
     [
      "2020-06-12",
@@ -58,7 +59,14 @@
     [
      "2020-07-31",
      "Eid'l Adha (Feast of Sacrifice)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by separate proclamation."
+    ],
+    [
+     "2020-08-20",
+     "Amun Jadid (Islamic New Year)",
+     "islamic",
+     "Muslim legal holiday (PD 1083). Observed in the Muslim provinces and cities and by Muslim government employees, declared by the NCMF; not a nationwide holiday."
     ],
     [
      "2020-08-21",
@@ -69,6 +77,12 @@
      "2020-08-31",
      "National Heroes Day",
      "regular"
+    ],
+    [
+     "2020-10-29",
+     "Maulidin Nabi (Birthday of the Prophet Muhammad)",
+     "islamic",
+     "Muslim legal holiday (PD 1083). Observed in the Muslim provinces and cities and by Muslim government employees, declared by the NCMF; not a nationwide holiday."
     ],
     [
      "2020-11-01",
@@ -159,7 +173,8 @@
     [
      "2021-05-13",
      "Eid'l Fitr (Feast of Ramadhan)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by separate proclamation."
     ],
     [
      "2021-06-12",
@@ -169,7 +184,8 @@
     [
      "2021-07-20",
      "Eid'l Adha (Feast of Sacrifice)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by separate proclamation."
     ],
     [
      "2021-08-21",
@@ -270,7 +286,8 @@
     [
      "2022-05-03",
      "Eid'l Fitr (Feast of Ramadhan)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by separate proclamation."
     ],
     [
      "2022-05-09",
@@ -285,7 +302,8 @@
     [
      "2022-07-09",
      "Eid'l Adha (Feast of Sacrifice)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by separate proclamation."
     ],
     [
      "2022-08-21",
@@ -341,12 +359,20 @@
     [
      "2023-01-02",
      "Additional Special Non-Working Day",
-     "special"
+     "special",
+     "Added by Proclamation No. 90: New Year's Day fell on a Sunday."
+    ],
+    [
+     "2023-02-18",
+     "Lailatul Isra Wal Mi'raj (Night Journey)",
+     "islamic",
+     "Muslim legal holiday (PD 1083). Observed in the Muslim provinces and cities and by Muslim government employees, declared by the NCMF; not a nationwide holiday. The date follows the Hijri calendar (27 Rajab 1444)."
     ],
     [
      "2023-02-24",
      "EDSA People Power Revolution Anniversary",
-     "special"
+     "special",
+     "Moved from February 25 (Saturday) by Proclamation No. 167. Declared first by Proclamation No. 42."
     ],
     [
      "2023-04-06",
@@ -366,12 +392,14 @@
     [
      "2023-04-10",
      "Araw ng Kagitingan",
-     "regular"
+     "regular",
+     "Moved from April 9 (Sunday) by Proclamation No. 90."
     ],
     [
      "2023-04-21",
      "Eid'l Fitr (Feast of Ramadhan)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by Proclamation No. 201."
     ],
     [
      "2023-05-01",
@@ -386,7 +414,8 @@
     [
      "2023-06-28",
      "Eid'l Adha (Feast of Sacrifice)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by separate proclamation."
     ],
     [
      "2023-08-21",
@@ -416,7 +445,8 @@
     [
      "2023-11-27",
      "Bonifacio Day",
-     "regular"
+     "regular",
+     "Moved from November 30 (Thursday) by Proclamation No. 90."
     ],
     [
      "2023-12-08",
@@ -456,7 +486,7 @@
     ],
     [
      "2024-02-09",
-     "Additional Special Non-Working Day",
+     "Additional Special Non-Working Day (Chinese New Year)",
      "special"
     ],
     [
@@ -487,7 +517,8 @@
     [
      "2024-04-10",
      "Eid'l Fitr (Feast of Ramadhan)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by separate proclamation."
     ],
     [
      "2024-05-01",
@@ -502,12 +533,14 @@
     [
      "2024-06-17",
      "Eid'l Adha (Feast of Sacrifice)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by Proclamation No. 579."
     ],
     [
      "2024-08-23",
      "Ninoy Aquino Day",
-     "special"
+     "special",
+     "Moved from August 21 (Wednesday)."
     ],
     [
      "2024-08-26",
@@ -573,7 +606,8 @@
     [
      "2025-04-01",
      "Eid'l Fitr (Feast of Ramadhan)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by separate proclamation."
     ],
     [
      "2025-04-09",
@@ -608,7 +642,8 @@
     [
      "2025-06-06",
      "Eid'l Adha (Feast of Sacrifice)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by separate proclamation."
     ],
     [
      "2025-06-12",
@@ -617,8 +652,9 @@
     ],
     [
      "2025-07-27",
-     "Founding Anniversary of Iglesia ni Cristo",
-     "special"
+     "Iglesia ni Cristo (INC) Founding Anniversary",
+     "special",
+     "Declared by Proclamation No. 729."
     ],
     [
      "2025-08-21",
@@ -689,7 +725,8 @@
     [
      "2026-03-20",
      "Eid'l Fitr (Feast of Ramadhan)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by Proclamation No. 1189."
     ],
     [
      "2026-04-02",
@@ -719,7 +756,8 @@
     [
      "2026-05-27",
      "Eid'l Adha (Feast of Sacrifice)",
-     "islamic"
+     "islamic",
+     "Regular holiday, declared nationwide by Proclamation No. 1264."
     ],
     [
      "2026-06-12",

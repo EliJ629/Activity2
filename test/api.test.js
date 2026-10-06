@@ -780,21 +780,31 @@ test("GET /api/holidays refuses a missing or odd year, and says which years exis
   await s.close();
 });
 
-test("GET /api/holidays: 2027's Eid days come with expected dates, and the year still works when the Hijri calendar is down", async () => {
+test("GET /api/holidays: 2027's Eid'l Fitr and Eid'l Adha are pending, with no guessed date", async () => {
   const s = await startServer();
   const r = await client(s.base).get("/api/holidays?year=2027");
+  assert.equal(r.status, 200);
   assert.deepEqual(r.data.pending, ["Eid'l Fitr (Feast of Ramadhan)", "Eid'l Adha (Feast of Sacrifice)"]);
-  assert.equal(r.data.holidays.filter((h) => h.expected && h.type === "islamic").length, 2);
+  assert.equal(r.data.holidays.length, 18);
+  assert.ok(!r.data.holidays.some((h) => h.type === "islamic" || h.expected));
+  assert.ok(r.data.holidays.some((h) => h.date === "2027-11-02" && h.name === "All Souls' Day"));
   await s.close();
+});
 
-  const { createHolidayService } = await import("../server/holidayService.js");
-  const { makeFakeAladhan } = await import("./fakeAladhan.js");
-  const down = await startServer({}, { holidays: createHolidayService({ fetchImpl: makeFakeAladhan({ mode: "down" }).fetchImpl }) });
-  const r2 = await client(down.base).get("/api/holidays?year=2027");
-  assert.equal(r2.status, 200);
-  assert.equal(r2.data.holidays.length, 18);
-  assert.equal(r2.data.pending.length, 2);
-  await down.close();
+test("GET /api/holidays: moved days carry a note, and the regional Muslim holidays are listed as Islamic", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  const y23 = (await c.get("/api/holidays?year=2023")).data.holidays;
+  assert.match(y23.find((h) => h.date === "2023-04-10").note, /Moved from April 9 \(Sunday\) by Proclamation No\. 90/);
+  assert.match(y23.find((h) => h.date === "2023-02-24").note, /Moved from February 25/);
+  assert.equal(y23.find((h) => h.date === "2023-02-18").type, "islamic");
+  const y20 = (await c.get("/api/holidays?year=2020")).data.holidays;
+  assert.deepEqual(y20.filter((h) => h.type === "islamic").map((h) => h.date), ["2020-05-25", "2020-07-31", "2020-08-20", "2020-10-29"]);
+  assert.ok(y20.find((h) => h.date === "2020-08-20").note.includes("PD 1083"));
+  assert.ok(y20.find((h) => h.date === "2020-08-21" && h.name === "Ninoy Aquino Day"));                // August 2020: Ninoy Aquino Day is the special day...
+  assert.ok(y20.find((h) => h.date === "2020-08-31" && h.name === "National Heroes Day"));             // ...and National Heroes Day (Aug 31) is a regular holiday
+  assert.equal(y20.filter((h) => h.date.startsWith("2020-10-")).length, 1);                              // October 2020: only the Muslim holiday, nothing nationwide
+  await s.close();
 });
 
 test("the browser may call only the address and DNS services directly; holidays and ZIP codes go through this server", async () => {

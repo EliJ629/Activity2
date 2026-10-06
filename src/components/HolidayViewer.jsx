@@ -82,7 +82,6 @@ export function HolidayViewer() {
   const counts = Object.fromEntries(TYPE_KEYS.map((t) => [t, state.holidays.filter((h) => h.type === t).length]));
   const visible = state.holidays.filter((h) => filter === "All" || h.type === filter);
   const listed = scope === "month" ? visible.filter((h) => h.month === month) : visible;
-  const hasExpected = state.holidays.some((h) => h.expected);
 
   const changeMonth = (delta) => {
     const next = month + delta;
@@ -128,6 +127,11 @@ export function HolidayViewer() {
               <button type="button" className="link-btn" onClick={() => setAttempt((a) => a + 1)}>Try again</button>
             </p>
           )}
+          {state.pending.length > 0 && (
+            <p className="holidays__status holidays__pending" role="status" data-testid="holiday-pending">
+              Islamic holidays pending for {year}: {state.pending.join(" and ")}. Their dates will be declared by separate proclamation.
+            </p>
+          )}
           <div className="cal-nav">
             <button type="button" className="icon-btn" onClick={() => changeMonth(-1)} aria-label="Previous month">&lsaquo;</button>
             <select className="field__select cal-nav__month" aria-label="Month" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
@@ -148,11 +152,13 @@ export function HolidayViewer() {
             <ul className="holiday-list" data-testid="holiday-list">
               {listed.map((h) => (
                 <li key={`${h.month}-${h.day}-${h.name}`} className={`holiday-item holiday-item--${h.type.toLowerCase()}`}>
-                  <span className="holiday-item__text">{formatHoliday(h, year)}</span>
+                  <span className="holiday-item__text">
+                    {formatHoliday(h, year)}
+                    {h.note && <><br /><span className="field__hint" data-testid="holiday-note">{h.note}</span></>}
+                  </span>
                   <span className="holiday-item__meta">
                     <span className="holiday-item__weekday">{weekdayOf(Number(year), h)}</span>
                     <Badge type={h.type} />
-                    {h.expected && <span className="badge badge--note">Expected date</span>}
                   </span>
                 </li>
               ))}
@@ -161,8 +167,8 @@ export function HolidayViewer() {
 
           <p className="holidays__source">
             Source: the government's proclamations (Official Gazette){state.proclamation ? `: ${state.proclamation}` : ""}. Every nationwide holiday
-            declared for {year} is listed; special working days (not a day off) and local holidays are not. Time zone: Asia/Manila.
-            {state.pending.length > 0 && ` ${state.pending.join(" and ")} for ${year} will be declared by separate proclamation${hasExpected ? "; the dates marked \"Expected\" are calculated from the Hijri calendar until then" : ""}.`}
+            declared for {year} is listed, with the regional Muslim holidays where they are shown; special working days (not a day off) and local
+            holidays are not. Time zone: Asia/Manila.
           </p>
         </>
       )}

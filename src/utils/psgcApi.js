@@ -2,11 +2,11 @@
 // Philippine address data from the free PSGC API (https://psgc.gitlab.io/api/)
 // Province -> City
 //
-// The City list holds CITIES only (Ilocos Norte: City of Batac, City of Laoag), the way "the cities of a province" is
-// normally meant. Most places are municipalities, not cities (1,488 of 1,634), and 29 of the 82 provinces have no city at
-// all, so nobody is shut out:
-//   * a province with no city lists its municipalities instead (fetchPlaces), and
-//   * a person whose place is a municipality can switch the list to municipalities (the switch under the City field).
+// The Municipality/City dropdown lists the picked province's cities first, then its municipalities (Ilocos Norte: City of
+// Batac and City of Laoag, then its 21 municipalities). Most places in the Philippines are municipalities, not cities (1,488
+// of 1,634) and 28 of the 82 provinces have no city at all, so a list of cities alone would shut most people out.
+// If you want the dropdown to hold CITIES ONLY, set SHOW_MUNICIPALITIES to false: a province with no city then lists its
+// municipalities instead, so nobody is left with an empty list.
 //
 // Only places that belong to the picked province are ever shown. Whatever a call returns is filtered: an entry the API files
 // under another province (or none), or of the other kind, is dropped, so a stray or oversized response cannot put other
@@ -23,6 +23,8 @@
 // A call that comes back empty or fails is not the end: the dedicated cities / municipalities call is tried first, then the
 // combined "cities and municipalities" call, then the full list of every place, each filtered the same way. Only when every
 // call fails is the error passed on (the form then says the list could not be loaded).
+
+export const SHOW_MUNICIPALITIES = true;
 
 const BASE_URL = "https://psgc.gitlab.io/api";
 const cache = {};
@@ -142,11 +144,13 @@ export async function fetchMunicipalities(provinceCode) {
   return toOptions(await placesOf(provinceCode, "municipalities"), "municipalities");
 }
 
-// What the City dropdown lists. The key is a province code, or "<code>|m" when the person asked for municipalities.
-// Cities by default; a province that has no city at all lists its municipalities, so its people are not stuck.
-export async function fetchPlaces(key) {
-  const [code, mode] = String(key).split("|");
-  if (mode === "m") return fetchMunicipalities(code);
-  const cities = await fetchCities(code);
-  return cities.length ? cities : fetchMunicipalities(code);
+// What the Municipality/City dropdown lists for a province: its cities, then its municipalities (each sorted by name).
+export async function fetchPlaces(provinceCode) {
+  const code = String(provinceCode).split("|")[0];
+  if (!SHOW_MUNICIPALITIES) {
+    const cities = await fetchCities(code);
+    return cities.length ? cities : fetchMunicipalities(code);
+  }
+  const [cities, municipalities] = await Promise.all([fetchCities(code), fetchMunicipalities(code)]);
+  return [...cities, ...municipalities];
 }

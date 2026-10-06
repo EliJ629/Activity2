@@ -3,11 +3,11 @@
 //
 // If the server can't answer (it is down, or it is an older version without this route), the page does not stay empty: it falls
 // back to the copy of the same government lists that is built into the page (server/holiday-data/ph-holidays.json, bundled at
-// build time), and says so, with the error code. The copy has no expected Eid dates (those come from the server).
+// build time), and says so, with the error code.
 //
 // The server answers with the holidays the government declared for that year (regular holidays, special non-working days,
 // Eid'l Fitr and Eid'l Adha), after every later proclamation that moved or added a day. For a year whose Eid proclamation is
-// still to come, the server adds expected dates calculated from the Hijri calendar and marks them "expected".
+// still to come (2027 at the moment), the answer lists them as "pending": no date is guessed for them.
 //
 // Every holiday is classified as:
 //   Regular  - Regular Holiday
@@ -27,11 +27,11 @@ const TYPE_OF = { regular: "Regular", special: "Special", islamic: "Islamic" };
 const PENDING_NAMES = { fitr: "Eid'l Fitr (Feast of Ramadhan)", adha: "Eid'l Adha (Feast of Sacrifice)" };
 const holidayCache = {};
 
-// [{ date: "2026-03-20", name, type, expected }] -> [{ month, day, name, type, expected }] in date order
+// [{ date: "2026-03-20", name, type, note? }] -> [{ month, day, name, type, note }] in date order
 const shape = (list) => list
-  .map(({ date, name, type, expected }) => {
+  .map(({ date, name, type, note }) => {
     const [, month, day] = date.split("-").map(Number);       // "2026-03-20"
-    return { month, day, name, type: TYPE_OF[type] || "Special", expected: Boolean(expected) };
+    return { month, day, name, type: TYPE_OF[type] || "Special", note: note || "" };
   })
   .sort((a, b) => a.month - b.month || a.day - b.day);
 
@@ -40,13 +40,13 @@ function builtInCopy(year) {
   const y = HOLIDAY_FILE.years[String(year)];
   if (!y) return null;
   return {
-    holidays: shape(y.holidays.map(([date, name, type]) => ({ date, name, type }))),
+    holidays: shape(y.holidays.map(([date, name, type, note]) => ({ date, name, type, note }))),
     proclamation: y.proclamation || "",
     pending: (y.pending || []).map((k) => PENDING_NAMES[k]).filter(Boolean),
   };
 }
 
-// Returns { holidays: [{ month, day, name, type, expected }], source, proclamation, pending, status }
+// Returns { holidays: [{ month, day, name, type, note }], source, proclamation, pending, status }
 //   source "proclamations" - answered by the server
 //   source "built-in"      - the server could not answer (status = its HTTP error, 0 = not reachable); the copy built into the page
 //   source "error"         - nothing to show (a year with no list)

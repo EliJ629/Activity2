@@ -2,7 +2,6 @@ import { createPostalService } from "../server/postal.js";
 import { makeFakeZipApi } from "./fakeZipApi.js";
 import { createGeoService } from "../server/geo.js";
 import { createHolidayService } from "../server/holidayService.js";
-import { makeFakeAladhan } from "./fakeAladhan.js";
 import { makeFakeGeoApi, FAKE_KEY } from "./fakeGeoApi.js";
 import http from "node:http";
 import { loadConfig } from "../server/config.js";
@@ -43,8 +42,8 @@ export async function startServer(overrides = {}, { smsDelayMs = 0, dbDelayMs = 
   const postalService = postal ?? createPostalService({ fetchImpl: makeFakeZipApi().fetchImpl });
   // ... and the same for the state / city lists: a fake of the Country State City API, with a key, unless a test brings its own
   const geoService = geo ?? createGeoService({ apiKey: FAKE_KEY, fetchImpl: makeFakeGeoApi().fetchImpl });
-  // ... and the holiday service, with a fake of the Aladhan Hijri calendar (it only matters for years whose Eid proclamation is pending)
-  const holidayService = holidays ?? createHolidayService({ fetchImpl: makeFakeAladhan().fetchImpl });
+  // ... and the holiday service (it reads server/holiday-data/ph-holidays.json, so it needs no fake)
+  const holidayService = holidays ?? createHolidayService();
   const app = await createApp({ config, db, mailer: createMailer(config, outbox), sms, outbox, postal: postalService, geo: geoService, holidays: holidayService });
   const server = http.createServer(app);
   await new Promise((r) => server.listen(0, "127.0.0.1", r));

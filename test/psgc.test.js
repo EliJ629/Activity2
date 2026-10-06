@@ -35,7 +35,7 @@ test("the first dropdown lists provinces, plus Metro Manila, and nothing the API
 
 /* ---------- the City list holds CITIES ---------- */
 
-test("Ilocos Norte lists its 2 cities and nothing else, as Google does", async () => {
+test("Ilocos Norte has 2 cities, as Google says: fetchCities gives exactly those", async () => {
   await withApi({}, async ({ fetchProvinces, fetchCities, fetchPlaces }) => {
     const prov = (await fetchProvinces()).find((p) => p.name === "Ilocos Norte");
     assert.equal(prov.code, "012800000");
@@ -43,17 +43,16 @@ test("Ilocos Norte lists its 2 cities and nothing else, as Google does", async (
     assert.deepEqual(names(cities), ILOCOS_CITIES);
     assert.deepEqual(cities.map((c) => c.code), ["012805000", "012812000"]);
     assert.ok(cities.every((c) => c.kind === "city"));
-    assert.deepEqual(names(await fetchPlaces(prov.code)), ILOCOS_CITIES);               // what the City dropdown shows
+    assert.equal(names(await fetchPlaces(prov.code)).slice(0, 2).join("|"), ILOCOS_CITIES.join("|"));   // the dropdown starts with those two
   });
 });
 
-test("the municipalities are listed only when asked for", async () => {
-  await withApi({}, async ({ fetchProvinces, fetchMunicipalities, fetchPlaces }) => {
+test("fetchMunicipalities gives Ilocos Norte's 21 municipalities, and neither Batac nor Laoag", async () => {
+  await withApi({}, async ({ fetchProvinces, fetchMunicipalities }) => {
     await fetchProvinces();
     const list = await fetchMunicipalities("012800000");
     assert.deepEqual(names(list), ILOCOS_MUNICIPALITIES);                               // 21, and neither Batac nor Laoag
     assert.ok(list.every((c) => c.kind === "municipality"));
-    assert.deepEqual(names(await fetchPlaces("012800000|m")), ILOCOS_MUNICIPALITIES);
   });
 });
 
@@ -220,5 +219,49 @@ test("when the address API is down the call fails, so the form can say so", asyn
   await withApi({ mode: "500" }, async ({ fetchProvinces, fetchCities }) => {
     await assert.rejects(fetchProvinces(), /Address API error \(500\)/);
     await assert.rejects(fetchCities("150700000"), /Address API error \(500\)/);
+  });
+});
+
+/* ---------- the Municipality/City dropdown: cities first, then municipalities ---------- */
+
+test("the dropdown lists a province's cities first, then its municipalities, each tagged with its kind", async () => {
+  await withApi({}, async ({ fetchProvinces, fetchPlaces }) => {
+    await fetchProvinces();
+    const places = await fetchPlaces("012800000");
+    assert.deepEqual(names(places), [...ILOCOS_CITIES, ...ILOCOS_MUNICIPALITIES]);                      // 2 + 21
+    assert.deepEqual(places.slice(0, 2).map((p) => p.kind), ["city", "city"]);
+    assert.ok(places.slice(2).every((p) => p.kind === "municipality"));
+    assert.equal(new Set(places.map((p) => p.code)).size, 23);
+  });
+});
+
+test("Metro Manila's dropdown: its cities, then Pateros", async () => {
+  await withApi({}, async ({ fetchProvinces, fetchPlaces }) => {
+    await fetchProvinces();
+    const places = await fetchPlaces("130000000");
+    assert.deepEqual(names(places), ["City of Caloocan", "City of Manila", "Quezon City", "Pateros"]);
+    assert.deepEqual(places.map((p) => p.kind), ["city", "city", "city", "municipality"]);
+  });
+});
+
+test("Basilan's dropdown has City of Isabela among its cities, then its municipality", async () => {
+  await withApi({}, async ({ fetchProvinces, fetchPlaces }) => {
+    await fetchProvinces();
+    assert.deepEqual(names(await fetchPlaces("150700000")), ["City of Isabela", "City of Lamitan", "Akbar"]);
+    assert.deepEqual(names(await fetchPlaces("153800000")), ["City of Cotabato", "Datu Odin Sinsuat"]);     // Maguindanao del Norte
+  });
+});
+
+test("even when the service sends every place in the country, the dropdown holds only the picked province's own", async () => {
+  await withApi({ leaky: true }, async ({ fetchProvinces, fetchPlaces }) => {
+    await fetchProvinces();
+    assert.deepEqual(names(await fetchPlaces("012800000")), [...ILOCOS_CITIES, ...ILOCOS_MUNICIPALITIES]);
+    assert.deepEqual(names(await fetchPlaces("064500000")), ["City of Bacolod", "City of Bago"]);
+  });
+});
+
+test("SHOW_MUNICIPALITIES is on, so the dropdown holds both kinds (turn it off in psgcApi.js for cities only)", async () => {
+  await withApi({}, async ({ SHOW_MUNICIPALITIES }) => {
+    assert.equal(SHOW_MUNICIPALITIES, true);
   });
 });
