@@ -1,25 +1,28 @@
 /* ===== utils/psgcApi.js ===== */
 // Philippine address data from the free PSGC API (https://psgc.gitlab.io/api/)
-// Province -> City / Municipality
+// Province -> City
 //
-// Two things in the official data need care so that nobody's home is missing from the lists:
-//
-//  1. Metro Manila (the NCR) has no provinces: its 17 cities hang directly off the region. It is added to the province
-//     list as "Metro Manila", and its cities are read from the region.
-//  2. Two cities belong to no province in the PSGC, although each lies inside one: City of Isabela (Basilan) and City of
-//     Cotabato (Maguindanao del Norte). A plain "cities of this province" call never returns them, so each is fetched by
-//     its own code and added to the province it lies in. (If the API ever lists them under the province itself, they are
-//     simply not added twice.)
-//
-// The old region dropdown also needed a patch for the Negros Island Region (2024); provinces are not affected by it, so
-// that patch is gone.
+// The City list holds CITIES only (Ilocos Norte: City of Batac, City of Laoag), the way "the cities of a province" is
+// normally meant. Most places are municipalities, not cities (1,488 of 1,634), and 29 of the 82 provinces have no city at
+// all, so nobody is shut out:
+//   * a province with no city lists its municipalities instead (fetchPlaces), and
+//   * a person whose place is a municipality can switch the list to municipalities (the switch under the City field).
 //
 // Only places that belong to the picked province are ever shown. Whatever a call returns is filtered: an entry the API files
-// under another province (or none) is dropped, so a stray or oversized response cannot put other places in the list.
+// under another province (or none), or of the other kind, is dropped, so a stray or oversized response cannot put other
+// places in the list.
 //
-// A province's cities are read with the API's "cities and municipalities of this province" call. If that comes back empty
-// or fails, the cities call and the municipalities call are tried separately, and last the full list of every city and
-// municipality is filtered by province, so one odd response for one province cannot leave its list empty.
+// Two more things in the official data need care so that nobody's home is missing from the lists:
+//  1. Metro Manila (the NCR) has no provinces: its cities hang directly off the region. It is added to the province list
+//     as "Metro Manila", and its cities (16) and municipality (Pateros) are read from the region.
+//  2. Two cities belong to no province in the PSGC, although each lies inside one: City of Isabela (Basilan) and City of
+//     Cotabato (Maguindanao del Norte). A plain "cities of this province" call never returns them, so each is fetched by its
+//     own code and added to the province it lies in. (If the API ever lists them under the province itself, they are simply
+//     not added twice.)
+//
+// A call that comes back empty or fails is not the end: the dedicated cities / municipalities call is tried first, then the
+// combined "cities and municipalities" call, then the full list of every place, each filtered the same way. Only when every
+// call fails is the error passed on (the form then says the list could not be loaded).
 
 const BASE_URL = "https://psgc.gitlab.io/api";
 const cache = {};
@@ -47,21 +50,27 @@ async function getRaw(path) {
 
 // Listed by the name people look for: "City of Laoag" is found under L, not under C
 const sortKey = (name) => name.replace(/^(city|municipality) of\s+/i, "");
-// Does this city / municipality belong to this province? The API says so itself in provinceCode. If it doesn't say, the PSGC
-// code does: a place's code starts with its province's (Ilocos Norte 012800000 -> Laoag 012812000). A place with provinceCode
-// false belongs to no province (Metro Manila's cities, Isabela and Cotabato) and is handled on its own.
-const belongsTo = (city, provinceCode) => {
-  if (city.provinceCode === false) return false;
-  if (city.provinceCode) return String(city.provinceCode) === String(provinceCode);
-  return String(city.code).startsWith(String(provinceCode).slice(0, 4));
-};
-
 const byName = (a, b) => sortKey(a.name).localeCompare(sortKey(b.name)) || a.name.localeCompare(b.name);
-const toOptions = (list) => {
+
+// Does this place belong to this province? The API says so itself in provinceCode. If it doesn't say, the PSGC code does: a
+// place's code starts with its province's (Ilocos Norte 012800000 -> Laoag 012812000). A place with provinceCode false
+// belongs to no province (Metro Manila's cities, Isabela and Cotabato) and is handled on its own.
+const belongsTo = (place, provinceCode) => {
+  if (place.provinceCode === false) return false;
+  if (place.provinceCode) return String(place.provinceCode) === String(provinceCode);
+  return String(place.code).startsWith(String(provinceCode).slice(0, 4));
+};
+const inNcr = (place) => String(place.code).startsWith("13");
+
+// Is it the kind asked for ("cities" or "municipalities")? The API says so in isCity. If it doesn't say, an answer from the
+// dedicated cities / municipalities call is trusted (it can only hold that kind); an answer from the other calls is not.
+const isKind = (place, kind, strict) => (typeof place.isCity === "boolean" ? (kind === "cities") === place.isCity : !strict);
+
+const toOptions = (list, kind) => {
   const seen = new Set();
   return list
     .filter((item) => item && item.code && item.name && !seen.has(item.code) && seen.add(item.code))   // each place once
-    .map((item) => ({ code: item.code, name: item.name, provinceCode: item.provinceCode }))
+    .map((item) => ({ code: item.code, name: item.name, provinceCode: item.provinceCode, kind: kind === "cities" ? "city" : "municipality" }))
     .sort(byName);
 };
 
@@ -74,47 +83,70 @@ export async function fetchProvinces() {
   provinceNames.clear();
   provinces.forEach((p) => provinceNames.set(p.code, p.name));
   provinces.push(NCR);
-  return provinces.sort(byName);
+  return provinces.sort((a, b) => sortKey(a.name).localeCompare(sortKey(b.name)));
 }
 
-// The raw cities and municipalities of one province, trying the combined call first. Only when EVERY call fails is the
-// error passed on (so the form can say the list could not be loaded); an empty answer from all of them is an empty province.
-async function citiesOfProvince(provinceCode) {
+// The raw places of one kind in one scope (a province, or the NCR). `primary` is the dedicated call for the kind, `combined`
+// the call that holds both kinds. An empty answer from one call is not final: the next is tried. The exception is the
+// combined call showing the province's places with none of this kind (a province with no city): that IS the answer, so the
+// whole-country list is not downloaded to double-check it.
+async function loadPlaces(kind, { primary, combined, inScope }) {
   let lastError = null;
   let answered = false;
-  const attempt = async (paths) => {
+  const attempt = async (path, strict, finalIfNoneOfKind = false) => {
     try {
-      const parts = await Promise.all(paths.map((p) => getRaw(p)));
+      const data = await getRaw(path);
       answered = true;
-      const list = parts.flat().filter((c) => belongsTo(c, provinceCode));   // an answer full of other provinces' places counts as empty
-      return list.length ? list : null;
+      const here = data.filter((p) => inScope(p));
+      const list = here.filter((p) => isKind(p, kind, strict));
+      if (list.length) return list;
+      return finalIfNoneOfKind && here.some((p) => typeof p.isCity === "boolean") ? [] : null;
     } catch (err) {
       lastError = err;
       return null;
     }
   };
   return (
-    (await attempt([`/provinces/${provinceCode}/cities-municipalities/`])) ||
-    (await attempt([`/provinces/${provinceCode}/cities/`, `/provinces/${provinceCode}/municipalities/`])) ||
-    (await attempt(["/cities-municipalities/"])) ||
+    (await attempt(primary, false)) ||
+    (await attempt(combined, true, true)) ||
+    (await attempt("/cities-municipalities/", true)) ||
     (answered ? [] : Promise.reject(lastError || new Error("Address API error")))
   );
 }
 
-export async function fetchCities(provinceCode) {
-  // Metro Manila: the region's places, and only the NCR ones (their codes start with 13)
-  if (provinceCode === NCR.code) return toOptions((await getRaw(`/regions/${NCR.code}/cities-municipalities/`)).filter((c) => String(c.code).startsWith("13")));
+const placesOf = (provinceCode, kind) =>
+  provinceCode === NCR.code
+    ? loadPlaces(kind, { primary: `/regions/${NCR.code}/${kind}/`, combined: `/regions/${NCR.code}/cities-municipalities/`, inScope: inNcr })
+    : loadPlaces(kind, { primary: `/provinces/${provinceCode}/${kind}/`, combined: `/provinces/${provinceCode}/cities-municipalities/`, inScope: (p) => belongsTo(p, provinceCode) });
 
-  const list = toOptions(await citiesOfProvince(provinceCode));
+// The CITIES of a province (Ilocos Norte: City of Batac, City of Laoag), or of Metro Manila
+export async function fetchCities(provinceCode) {
+  const list = toOptions(await placesOf(provinceCode, "cities"), "cities");
+  if (provinceCode === NCR.code) return list;
+
   const name = provinceNames.get(provinceCode) || "";
   const allNames = [...provinceNames.values()];
   for (const extra of PROVINCELESS_CITIES) {
     if (!extra.inProvince(name, allNames) || list.some((c) => c.code === extra.code)) continue;
     try {
-      list.push(...toOptions([await getRaw(`/cities-municipalities/${extra.code}/`)]));
+      list.push(...toOptions([await getRaw(`/cities-municipalities/${extra.code}/`)], "cities"));
     } catch {
       // if this one lookup fails the rest of the list still works
     }
   }
   return list.sort(byName);
+}
+
+// The MUNICIPALITIES of a province (Ilocos Norte: its 21), or Metro Manila's one (Pateros)
+export async function fetchMunicipalities(provinceCode) {
+  return toOptions(await placesOf(provinceCode, "municipalities"), "municipalities");
+}
+
+// What the City dropdown lists. The key is a province code, or "<code>|m" when the person asked for municipalities.
+// Cities by default; a province that has no city at all lists its municipalities, so its people are not stuck.
+export async function fetchPlaces(key) {
+  const [code, mode] = String(key).split("|");
+  if (mode === "m") return fetchMunicipalities(code);
+  const cities = await fetchCities(code);
+  return cities.length ? cities : fetchMunicipalities(code);
 }
