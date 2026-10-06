@@ -202,3 +202,79 @@ test("after a failure the Hijri API is left alone for a minute, then tried again
 test("a damaged or missing file is caught at startup", () => {
   assert.throws(() => loadHolidayData("/nonexistent/ph-holidays.json"));
 });
+
+/* ---------- the browser's loader: the server first, the copy built into the page when the server can't answer ---------- */
+
+let copyNo = 0;
+async function withFetch(impl, fn) {
+  const real = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts) => { calls.push(String(url)); return impl(String(url), opts); };
+  try {
+    const { loadHolidays } = await import(`../src/utils/holidayApi.js?copy=${++copyNo}`);   // a fresh copy: the loader keeps a cache
+    await fn(loadHolidays, calls);
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+const asServer = (year) => new Response(JSON.stringify({ year, source: "proclamations", proclamation: data[year].proclamation, pending: [], holidays: all(year) }), { status: 200, headers: { "content-type": "application/json" } });
+const notFound = () => new Response(JSON.stringify({ message: "Not found." }), { status: 404, headers: { "content-type": "application/json" } });
+
+test("the loader asks the server for the year and uses its answer", async () => {
+  await withFetch(async (url) => asServer(Number(/year=(\d{4})/.exec(url)[1])), async (loadHolidays, calls) => {
+    const r = await loadHolidays(2026);
+    assert.equal(r.source, "proclamations");
+    assert.equal(r.status, 200);
+    assert.equal(r.holidays.length, 20);
+    assert.deepEqual(calls, ["/api/holidays?year=2026"]);
+    await loadHolidays(2026);
+    assert.equal(calls.length, 1);                                   // remembered
+  });
+});
+
+test("when the server has no such route (an older server: 404), the page uses the copy built into it, and says which error", async () => {
+  await withFetch(async () => notFound(), async (loadHolidays) => {
+    const r = await loadHolidays(2026);
+    assert.equal(r.source, "built-in");
+    assert.equal(r.status, 404);
+    assert.equal(r.holidays.length, 20);
+    assert.ok(r.holidays.some((h) => h.month === 11 && h.day === 2 && h.name === "All Souls' Day" && h.type === "Special"));
+    assert.ok(!r.holidays.some((h) => h.month === 2 && h.day === 25));
+    assert.match(r.proclamation, /Proclamation No\. 1006/);
+  });
+});
+
+test("the built-in copy is complete for every year, and a failing server is not the end for any of them", async () => {
+  await withFetch(async () => new Response("oops", { status: 500 }), async (loadHolidays) => {
+    for (const y of YEARS) {
+      const r = await loadHolidays(y);
+      assert.equal(r.source, "built-in", String(y));
+      assert.equal(r.status, 500);
+      assert.equal(r.holidays.length, data[y].holidays.length, String(y));
+    }
+    const r27 = await loadHolidays(2027);
+    assert.deepEqual(r27.pending, ["Eid'l Fitr (Feast of Ramadhan)", "Eid'l Adha (Feast of Sacrifice)"]);   // no expected dates in the copy: the page says they are pending
+    assert.ok(!r27.holidays.some((h) => h.expected));
+  });
+});
+
+test("when the server can't be reached at all the status is 0, and a year with no list has nothing to show", async () => {
+  await withFetch(async () => { throw new TypeError("fetch failed"); }, async (loadHolidays) => {
+    const r = await loadHolidays(2024);
+    assert.equal(r.source, "built-in");
+    assert.equal(r.status, 0);
+    assert.ok(r.holidays.some((h) => h.month === 8 && h.day === 23 && h.name === "Ninoy Aquino Day"));
+    const none = await loadHolidays(2030);
+    assert.equal(none.source, "error");
+    assert.deepEqual(none.holidays, []);
+  });
+});
+
+test("the built-in copy is not kept: once the server answers again, its answer is used", async () => {
+  let up = false;
+  await withFetch(async () => (up ? asServer(2026) : notFound()), async (loadHolidays) => {
+    assert.equal((await loadHolidays(2026)).source, "built-in");
+    up = true;
+    assert.equal((await loadHolidays(2026)).source, "proclamations");
+  });
+});

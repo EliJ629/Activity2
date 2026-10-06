@@ -66,7 +66,7 @@ export function HolidayViewer() {
   const [month, setMonth] = useState(today.y === initialYear ? today.m : 1);
   const [filter, setFilter] = useState("All");
   const [scope, setScope] = useState("month"); // "month" | "year"
-  const [state, setState] = useState({ holidays: [], source: "", proclamation: "", pending: [], loading: true });
+  const [state, setState] = useState({ holidays: [], source: "", proclamation: "", pending: [], status: 200, loading: true });
   const [attempt, setAttempt] = useState(0);                  // "Try again" asks for the same year once more
 
   // Asynchronous request each time a year is selected
@@ -122,6 +122,12 @@ export function HolidayViewer() {
         </div>
       ) : (
         <>
+          {state.source === "built-in" && (
+            <p className="holidays__status" role="status" data-testid="holiday-offline-note">
+              The server could not give the holidays (error {state.status || "no connection"}), so this is the copy of the government's lists built into this page.{" "}
+              <button type="button" className="link-btn" onClick={() => setAttempt((a) => a + 1)}>Try again</button>
+            </p>
+          )}
           <div className="cal-nav">
             <button type="button" className="icon-btn" onClick={() => changeMonth(-1)} aria-label="Previous month">&lsaquo;</button>
             <select className="field__select cal-nav__month" aria-label="Month" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
