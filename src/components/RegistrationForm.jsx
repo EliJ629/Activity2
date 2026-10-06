@@ -24,7 +24,7 @@ const EMPTY_FORM = {
   mobile: "",
   address: {
     houseStreet: "", countryCode: "PH",
-    region: "", regionName: "", city: "", cityName: "",
+    province: "", provinceName: "", city: "", cityName: "",
     stateText: "", cityText: "", zip: "",
   },
 };
@@ -45,7 +45,7 @@ function toPayload(form) {
     address: {
       houseStreet: a.houseStreet,
       countryCode: a.countryCode,
-      state: ph ? a.regionName : a.stateText,
+      state: ph ? a.provinceName : a.stateText,
       city: ph ? a.cityName : a.cityText,
       cityCode: ph ? a.city : "", // the PSGC code of the chosen city: the server uses it to check the ZIP
       zip: a.zip,

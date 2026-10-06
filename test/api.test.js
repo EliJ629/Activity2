@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { startServer, client, goodPayload, lastLink, lastOtp, sleep, insertVerifiedUser } from "./helpers.js";
 import { canonicalEmail } from "../shared/validation.js";
 import { loadConfig } from "../server/config.js";
+import pg from "pg";
+import "../server/db.js";   // registers the date / timestamp readers
 import { createPostalService } from "../server/postal.js";
 import { makeFakeZipApi } from "./fakeZipApi.js";
 
@@ -721,4 +723,15 @@ test("OTP: after 3 wrong codes a new code can't be requested until the lock is o
   assert.equal(smsCount(), sent + 1);
   assert.equal((await c.post("/api/otp/verify", { code: lastOtp(s.outbox) })).status, 200);
   await s.close();
+});
+
+test("timestamps always come back as ISO text with exactly three fraction digits (Postgres drops trailing zeros)", () => {
+  const read = pg.types.getTypeParser(1114);
+  assert.equal(read("2026-10-06 10:01:56.67"), "2026-10-06T10:01:56.670Z");
+  assert.equal(read("2026-10-06 10:01:56.5"), "2026-10-06T10:01:56.500Z");
+  assert.equal(read("2026-10-06 10:01:56"), "2026-10-06T10:01:56.000Z");
+  assert.equal(read("2026-10-06 10:01:56.123456"), "2026-10-06T10:01:56.123Z");   // microseconds are cut to milliseconds
+  assert.equal(read("2026-10-06 10:01:56.670000"), "2026-10-06T10:01:56.670Z");
+  for (const v of ["2026-10-06 10:01:56.67", "2026-10-06 10:01:56", "2026-10-06 10:01:56.5"]) assert.ok(!Number.isNaN(Date.parse(read(v))), v);
+  assert.equal(pg.types.getTypeParser(1082)("2026-10-06"), "2026-10-06");                  // a DATE stays plain text
 });

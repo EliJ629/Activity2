@@ -85,7 +85,7 @@ export const goodPayload = (over = {}) => ({
   firstName: "Juan", middleInitial: "D.", lastName: "Dela Cruz",
   birthday: "03/25/1998", email: `juan${Math.random().toString(36).slice(2, 8)}@gmail.com`,
   password: "Str0ng!Passw0rd#1", confirmPassword: "Str0ng!Passw0rd#1", mobile: "917 123 4567",
-  address: { houseStreet: "Blk 12 Lot 5, Rizal St.", countryCode: "PH", state: "National Capital Region (NCR)", city: "Caloocan City", cityCode: "137501000", zip: "1400" },
+  address: { houseStreet: "Blk 12 Lot 5, Rizal St.", countryCode: "PH", state: "Metro Manila", city: "Caloocan City", cityCode: "137501000", zip: "1400" },
   ...over,
 });
 

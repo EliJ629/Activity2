@@ -11,7 +11,13 @@ pg.types.setTypeParser(20, (v) => parseInt(v, 10)); // OID 20 = int8/bigint
 // handles dates as plain text: DATE comes back as "YYYY-MM-DD", and TIMESTAMP (which here always
 // holds UTC) as ISO-8601 with a Z, so Date.parse() reads it the same way on any server.
 pg.types.setTypeParser(1082, (v) => v);                            // OID 1082 = date
-pg.types.setTypeParser(1114, (v) => `${v.replace(" ", "T")}Z`);    // OID 1114 = timestamp without time zone
+// Postgres drops trailing zeros from the fraction of a second ("...56.67" for 56.670), so it is padded (or cut) to exactly
+// three digits: every timestamp the app sees looks the same, ".670" and ".000" included.
+pg.types.setTypeParser(1114, (v) => {                              // OID 1114 = timestamp without time zone
+  const [date, time = "00:00:00"] = v.split(" ");
+  const [hms, fraction = ""] = time.split(".");
+  return `${date}T${hms}.${fraction.padEnd(3, "0").slice(0, 3)}Z`;
+});
 
 export function openDb(connectionString) {
   const pool = new Pool({ connectionString });

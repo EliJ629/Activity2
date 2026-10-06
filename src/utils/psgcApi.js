@@ -1,20 +1,33 @@
 /* ===== utils/psgcApi.js ===== */
 // Philippine address data from the free PSGC API (https://psgc.gitlab.io/api/)
-// Region -> City / Municipality
+// Province -> City / Municipality
 //
-// The API's data predates the Negros Island Region (NIR, created 2024 by RA 12000),
-// so it returns only 17 regions. To give the full 18, NIR is added here and built
-// from its provinces through the same API:
-//   Negros Occidental (incl. Bacolod City), Negros Oriental, Siquijor
-// Those provinces are then removed from Western Visayas and Central Visayas.
-// If the API ever adds NIR itself, this patch switches off automatically.
+// Two things in the official data need care so that nobody's home is missing from the lists:
+//
+//  1. Metro Manila (the NCR) has no provinces: its 17 cities hang directly off the region. It is added to the province
+//     list as "Metro Manila", and its cities are read from the region.
+//  2. Two cities belong to no province in the PSGC, although each lies inside one: City of Isabela (Basilan) and City of
+//     Cotabato (Maguindanao del Norte). A plain "cities of this province" call never returns them, so each is fetched by
+//     its own code and added to the province it lies in. (If the API ever lists them under the province itself, they are
+//     simply not added twice.)
+//
+// The old region dropdown also needed a patch for the Negros Island Region (2024); provinces are not affected by it, so
+// that patch is gone.
 
 const BASE_URL = "https://psgc.gitlab.io/api";
 const cache = {};
 
-const NIR = { code: "180000000", name: "Negros Island Region (NIR)" };
-const NIR_PROVINCES = ["064500000", "074600000", "076100000"];
-let apiHasNir = false;
+const NCR = { code: "130000000", name: "Metro Manila" };
+
+const PROVINCELESS_CITIES = [
+  { code: "099701000", inProvince: (name) => /^basilan$/i.test(name) },                       // City of Isabela
+  {                                                                                           // City of Cotabato
+    code: "129804000",
+    inProvince: (name, all) => /^maguindanao/i.test(name) && (!all.some((n) => /del norte/i.test(n)) || /del norte/i.test(name)),
+  },
+];
+
+const provinceNames = new Map(); // province code -> name, filled by fetchProvinces (fetchCities needs it)
 
 async function getRaw(path) {
   if (cache[path]) return cache[path];
@@ -25,33 +38,34 @@ async function getRaw(path) {
   return data;
 }
 
-const toOptions = (list) =>
-  list
-    .map((item) => ({ code: item.code, name: item.name, provinceCode: item.provinceCode }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+const byName = (a, b) => a.name.localeCompare(b.name);
+const toOptions = (list) => list.map((item) => ({ code: item.code, name: item.name, provinceCode: item.provinceCode })).sort(byName);
 
-// "Ilocos Region (Region I)", "National Capital Region (NCR)", ...
-function regionLabel(r) {
-  if (!r.regionName || r.regionName === r.name) return r.name;
-  return r.regionName.startsWith("Region") ? `${r.name} (${r.regionName})` : `${r.regionName} (${r.name})`;
+export async function fetchProvinces() {
+  const data = await getRaw("/provinces/");
+  const provinces = data
+    // anything the API files under the NCR (code 13...) or calls "(Not a Province)" is replaced by the single Metro Manila entry
+    .filter((p) => !String(p.code).startsWith("13") && !/not a province/i.test(p.name))
+    .map((p) => ({ code: p.code, name: p.name }));
+  provinceNames.clear();
+  provinces.forEach((p) => provinceNames.set(p.code, p.name));
+  provinces.push(NCR);
+  return provinces.sort(byName);
 }
 
-export async function fetchRegions() {
-  const data = await getRaw("/regions/");
-  const regions = data.map((r) => ({ code: r.code, name: regionLabel(r) }));
-  apiHasNir = regions.some((r) => /negros island/i.test(r.name));
-  if (!apiHasNir) regions.push(NIR);
-  return regions.sort((a, b) => a.name.localeCompare(b.name)); // 18 regions
-}
+export async function fetchCities(provinceCode) {
+  if (provinceCode === NCR.code) return toOptions(await getRaw(`/regions/${NCR.code}/cities-municipalities/`));
 
-export async function fetchCities(regionCode) {
-  if (regionCode === NIR.code) {
-    const lists = await Promise.all(
-      NIR_PROVINCES.map((p) => getRaw(`/provinces/${p}/cities-municipalities/`))
-    );
-    return toOptions(lists.flat());
+  const list = toOptions(await getRaw(`/provinces/${provinceCode}/cities-municipalities/`));
+  const name = provinceNames.get(provinceCode) || "";
+  const allNames = [...provinceNames.values()];
+  for (const extra of PROVINCELESS_CITIES) {
+    if (!extra.inProvince(name, allNames) || list.some((c) => c.code === extra.code)) continue;
+    try {
+      list.push(...toOptions([await getRaw(`/cities-municipalities/${extra.code}/`)]));
+    } catch {
+      // if this one lookup fails the rest of the list still works
+    }
   }
-  const list = toOptions(await getRaw(`/regions/${regionCode}/cities-municipalities/`));
-  // Negros provinces now belong to NIR, not Western / Central Visayas
-  return apiHasNir ? list : list.filter((c) => !NIR_PROVINCES.includes(c.provinceCode));
+  return list.sort(byName);
 }

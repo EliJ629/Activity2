@@ -371,7 +371,7 @@ export function validateRegistration(p, { today = todayParts(), countryLabel } =
   const street = validateHouseStreet(a.houseStreet);
   if (street) e.houseStreet = street;
   if (!a.countryCode) e.countryCode = "Select a country.";
-  const state = validateLocality(a.state, "State / region");
+  const state = validateLocality(a.state, a.countryCode === "PH" ? "Province" : "State / province");
   if (state) e.state = state;
   const city = validateLocality(a.city, "City");
   if (city) e.city = city;

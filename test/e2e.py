@@ -47,8 +47,8 @@ def aladhan(url):
     return {"code": 200, "status": "OK", "data": {"gregorian": {"date": date}}}
 
 def psgc(url):
-    if url.endswith("/regions/"): return [{"code": "130000000", "name": "NCR", "regionName": "National Capital Region"}, {"code": "010000000", "name": "Ilocos Region", "regionName": "Region I"}]
-    if url.endswith("/cities-municipalities/"): return [{"code": "137501000", "name": "Caloocan City", "provinceCode": False}]
+    if url.endswith("/provinces/"): return [{"code": "012800000", "name": "Ilocos Norte"}, {"code": "064500000", "name": "Negros Occidental"}]
+    if url.endswith("/regions/130000000/cities-municipalities/"): return [{"code": "137501000", "name": "Caloocan City", "provinceCode": False}]   # Metro Manila: cities hang off the region
     return []
 
 def dns(url): return {"Status": 0, "Answer": [{"type": 15, "data": "10 mx.example.net."}]}
@@ -99,7 +99,7 @@ def main():
             page.goto(BASE + "/register")
             expect(page.get_by_role("heading", name="Create an Account")).to_be_visible()
             expect(page.locator("[data-testid=mobile-prefix]")).to_have_text("+63")
-            expect(page.locator("#region")).to_be_enabled()            # PSGC regions loaded
+            expect(page.locator("#province")).to_be_enabled()          # PSGC provinces loaded
             shot(page, "01-register-mobile-empty")
 
             # country switch changes prefix, ZIP handling and the address fields
@@ -147,7 +147,7 @@ def main():
             expect(page.locator("#mobile-error")).to_have_count(0)
 
             page.fill("#houseStreet", "Blk 12 Lot 5, Rizal St.")
-            page.select_option("#region", "130000000")
+            page.select_option("#province", "130000000")          # Metro Manila
             expect(page.locator("#city")).to_be_enabled()
             page.select_option("#city", "137501000")
             # the ZIP field is a dropdown of the chosen city's own codes: Caloocan's are offered, Quezon City's are not

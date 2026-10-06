@@ -1,13 +1,13 @@
 /* ===== components/AddressFields.jsx ===== */
 import { useEffect, useMemo, useState } from "react";
-import { fetchRegions, fetchCities } from "../utils/psgcApi.js";
+import { fetchProvinces, fetchCities } from "../utils/psgcApi.js";
 import { fetchGeoStates, fetchGeoCities } from "../utils/geoApi.js";
 import { listCountries } from "../../shared/countries.js";
 
 // Address value shape:
-// { houseStreet, countryCode, region, regionName, city, cityName,
+// { houseStreet, countryCode, province, provinceName, city, cityName,
 //   stateText, cityText, zip }
-// Philippines: region / city hold PSGC codes (the *Name fields hold the
+// Philippines: province / city hold PSGC codes (the *Name fields hold the
 // display names) and come from the PSGC API dropdowns.
 // Other countries: state and city are dropdowns from the Country State City API (through our server) whenever the
 // lists are available - stateCode / cityKey remember the pick, stateText / cityText hold the names that get saved - and
@@ -114,8 +114,8 @@ function PlainField({ id, label, value, onChange, onBlur, error, placeholder, ma
 export function AddressFields({ value, onChange, onTouch, errors = {}, zipOptions = null, zipLoading = false }) {
   const isPH = value.countryCode === "PH";
   const countries = useMemo(() => listCountries(), []);
-  const regions = useOptions(fetchRegions, isPH ? "all" : null);
-  const cities = useOptions(fetchCities, isPH ? value.region || null : null);
+  const provinces = useOptions(fetchProvinces, isPH ? "all" : null);
+  const cities = useOptions(fetchCities, isPH ? value.province || null : null);
 
   // Other countries: states of the country, then cities of the state (lists come from our server; empty = not available)
   const geoStates = useOptions(fetchGeoStates, !isPH && value.countryCode && !value.stateManual ? value.countryCode : null);
@@ -131,11 +131,11 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipOption
 
   // Changing the country clears everything below it (each country has its own places and ZIP format)
   const setCountry = (code) =>
-    set({ countryCode: code, region: "", regionName: "", city: "", cityName: "", stateText: "", cityText: "", zip: "",
+    set({ countryCode: code, province: "", provinceName: "", city: "", cityName: "", stateText: "", cityText: "", zip: "",
       stateCode: "", cityKey: "", stateManual: false, cityManual: false }, ["countryCode"]);
   // Changing a parent resets the fields below it
   // (the ZIP goes too: it was one of the old city's codes)
-  const setRegion = (r) => set({ region: r.code, regionName: r.name, city: "", cityName: "", zip: "" }, ["state"]);
+  const setProvince = (p) => set({ province: p.code, provinceName: p.name, city: "", cityName: "", zip: "" }, ["state"]);
   const setCity = (c) => set({ city: c.code, cityName: c.name, zip: "" }, ["city"]);
   // Other countries
   const pickState = (st) => (st.code === OTHER
@@ -191,10 +191,10 @@ export function AddressFields({ value, onChange, onTouch, errors = {}, zipOption
 
         {isPH ? (
           <>
-            <ApiSelect id="region" label="State / Region" placeholder="Select region" value={value.region}
-              options={regions} onSelect={setRegion} onBlur={() => onTouch(["state"])} error={errors.state} />
-            <ApiSelect id="city" label="City" placeholder="Select city" value={value.city}
-              options={cities} disabled={!value.region} onSelect={setCity} onBlur={() => onTouch(["city"])} error={errors.city} />
+            <ApiSelect id="province" label="Province" placeholder="Select province" value={value.province}
+              options={provinces} onSelect={setProvince} onBlur={() => onTouch(["state"])} error={errors.state} />
+            <ApiSelect id="city" label="City" placeholder={value.province && !cities.loading && !cities.error && cities.list.length === 0 ? "No cities listed" : "Select city"} value={value.city}
+              options={cities} disabled={!value.province} onSelect={setCity} onBlur={() => onTouch(["city"])} error={errors.city} />
           </>
         ) : (
           <>
