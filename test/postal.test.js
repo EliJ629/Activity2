@@ -179,3 +179,37 @@ test("it reads the REAL API's responses (copied from zip.jamesventura.dev), incl
   assert.equal(list.source, "api");
   assert.ok(seen.every((c) => c.host === "zip.jamesventura.dev" && c.accept === "application/json"));
 });
+
+/* ---------- a city with exactly these ZIPs (ph-postal-only.json): Naic, Cavite has 4110 only ---------- */
+
+const NAIC = { city: "Naic", cityCode: "042115000" };
+
+test("Naic, Cavite has only 4110: the real data file says so, even with the ZIP API down", async () => {
+  const api = makeFakeZipApi({ mode: "down" });
+  const svc = createPostalService({ fetchImpl: api.fetchImpl, extras: {} });          // reads the real ph-postal-only.json
+  assert.deepEqual(await svc.zipsFor("042115000"), { city: "Naic", zips: ["4110"], source: "override" });
+  assert.deepEqual(phZipsFor("042115000"), { city: "Naic", zips: ["4110"] });          // the bundled table agrees (it used to say 4110 and 4135)
+  assert.deepEqual(await ask(svc, "4110", NAIC), { status: "ok", place: "Naic", source: "override" });
+  const wrong = await ask(svc, "4135", NAIC);
+  assert.equal(wrong.status, "mismatch");
+  assert.equal(wrong.message, "4135 isn't a postal code for Naic. Its codes: 4110.");
+  assert.deepEqual(wrong.expected, ["4110"]);
+});
+
+test("an 'exactly these ZIPs' city beats the ZIP API, the table and the hand-made additions", async () => {
+  // the fake API insists that 4135 AND 4110 belong to Naic; a hand-made addition adds 4135 as well
+  const { api, svc } = service({ only: { "042115": ["4110"] }, extras: { "042115": ["4135"] } }, { override: (zip) => (zip === "4135" || zip === "4110" ? ["042115"] : undefined) });
+  assert.equal((await ask(svc, "4110", NAIC)).status, "ok");
+  assert.equal((await ask(svc, "4135", NAIC)).status, "mismatch");
+  assert.deepEqual((await svc.zipsFor("042115000")).zips, ["4110"]);
+  assert.equal(api.calls.length, 0, "such a city is answered without asking the API");
+});
+
+test("other cities are not affected by that file", async () => {
+  const api = makeFakeZipApi({ mode: "down" });
+  const svc = createPostalService({ fetchImpl: api.fetchImpl, extras: {} });
+  const cal = await svc.zipsFor("137501000");
+  assert.equal(cal.source, "table");
+  assert.ok(cal.zips.includes("1400") && cal.zips.length > 1);
+  assert.equal((await ask(svc, "1400")).status, "ok");
+});

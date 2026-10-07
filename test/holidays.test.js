@@ -189,6 +189,16 @@ test("each day the government moved says where it was first set", async () => {
   assert.match(note(2025, "2025-07-27"), /Proclamation No\. 729/);
 });
 
+test("Eid'l Fitr 2025: the nationwide holiday is April 1 (Proclamation No. 839), and the note says the Muslim Eid'l Fitr was observed on March 31", async () => {
+  const eid = all(2025).find((h) => h.name.startsWith("Eid'l Fitr"));
+  assert.equal(eid.date, "2025-04-01");
+  assert.equal(eid.type, "islamic");
+  assert.match(eid.note, /Proclamation No\. 839/);
+  assert.match(eid.note, /Muslim Eid'l Fitr was observed on Monday, March 31, 2025/);
+  assert.match(data[2025].proclamation, /839/);
+  assert.ok(!all(2025).some((h) => h.date === "2025-03-31"), "March 31 is a note on April 1, not a second holiday");
+});
+
 test("the 2024 and 2025 entries use the names asked for: the Chinese New Year bridge day and the INC anniversary", async () => {
   assert.ok(has(2024, "2024-02-09", "Additional Special Non-Working Day (Chinese New Year)"));
   assert.ok(has(2024, "2024-04-10", "Eid'l Fitr (Feast of Ramadhan)") && has(2024, "2024-06-17", "Eid'l Adha (Feast of Sacrifice)"));

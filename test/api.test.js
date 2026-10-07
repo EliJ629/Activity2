@@ -840,3 +840,22 @@ test("after a deploy the browser must not keep running the old page: HTML, scrip
   assert.notEqual(icon.headers.get("cache-control"), "no-cache");
   await s.close();
 });
+
+test("Naic, Cavite has the single ZIP 4110: the ZIP dropdown, the live check and registration all agree", async () => {
+  const s = await startServer();
+  const c = client(s.base);
+  const list = await c.get("/api/ph-postal?cityCode=042115000");
+  assert.equal(list.status, 200);
+  assert.deepEqual(list.data, { city: "Naic", zips: ["4110"], source: "override" });
+  assert.equal((await c.get("/api/ph-postal?cityCode=042115000&zip=4110")).data.valid, true);
+  const bad = (await c.get("/api/ph-postal?cityCode=042115000&zip=4135")).data;
+  assert.equal(bad.valid, false);
+  assert.equal(bad.message, "4135 isn't a postal code for Naic. Its codes: 4110.");
+
+  const naic = (zip) => goodPayload({ address: { houseStreet: "123 Main St", countryCode: "PH", state: "Cavite", city: "Naic", cityCode: "042115000", zip } });
+  const refused = await c.post("/api/register", naic("4135"));
+  assert.equal(refused.status, 422);
+  assert.match(refused.data.errors.zip, /Its codes: 4110\./);
+  assert.equal((await c.post("/api/register", naic("4110"))).status, 201);
+  await s.close();
+});

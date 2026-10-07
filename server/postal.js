@@ -1,6 +1,8 @@
 // Postal-code check for the Philippines: does this ZIP really belong to the city the person picked?
 //
 // Where the answer comes from, in this order:
+//   0. server/postal-data/ph-postal-only.json - a city listed there has EXACTLY those ZIPs (Naic, Cavite: 4110 only). It
+//      replaces what the API and the table say, so a ZIP the data wrongly gives a city can be taken away.
 //   1. server/postal-data/ph-postal-extra.json - a ZIP you added there by hand is always accepted for that city.
 //   2. The Unified ZIP Code API (https://zip.jamesventura.dev - public, no key, 60 requests a minute per address,
 //      source: github.com/0xC0000094/unified-zip-code). Its `lookup?postal=` call returns every barangay that uses
@@ -61,6 +63,7 @@ function readTables() {
   if (loaded) return loaded;
   const base = JSON.parse(fs.readFileSync(path.join(HERE, "postal-data", "ph-postal.json"), "utf8")).cities;
   let extras = {};
+  let only = {};
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(HERE, "postal-data", "ph-postal-extra.json"), "utf8"));
     for (const [key, zips] of Object.entries(raw)) {
@@ -69,10 +72,25 @@ function readTables() {
   } catch (err) {
     if (err.code !== "ENOENT") console.error("Could not read ph-postal-extra.json:", err.message);
   }
+  // cities whose ZIP list is exactly the one given (see ph-postal-only.json)
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(HERE, "postal-data", "ph-postal-only.json"), "utf8"));
+    for (const [key, zips] of Object.entries(raw)) {
+      if (!key.startsWith("_") && Array.isArray(zips)) {
+        const list = [...new Set(zips.filter((z) => /^\d{4}$/.test(z)))].sort();
+        if (list.length) only[key] = list;
+      }
+    }
+  } catch (err) {
+    if (err.code !== "ENOENT") console.error("Could not read ph-postal-only.json:", err.message);
+  }
   for (const [key, zips] of Object.entries(extras)) {
     if (base[key]) base[key].z = [...new Set([...base[key].z, ...zips])].sort();
   }
-  loaded = { base, extras };
+  for (const [key, zips] of Object.entries(only)) {
+    if (base[key]) base[key].z = zips;                      // the bundled table too, so the fallback agrees
+  }
+  loaded = { base, extras, only };
   return loaded;
 }
 const phTable = () => readTables().base;
@@ -107,11 +125,13 @@ export function createPostalService({
   breakerMs = 60 * 1000,        // after a failure, go straight to the table for this long
   now = () => Date.now(),
   extras = null,                // tests can pass their own hand-made additions
+  only = null,                  // ... and their own "exactly these ZIPs" cities
 } = {}) {
   const cache = new Map();    // key -> { at, value }
   const inflight = new Map(); // key -> Promise (parallel requests for the same thing share one call)
   let downUntil = 0;
   const handMade = () => extras ?? readTables().extras;
+  const exact = () => only ?? readTables().only;
 
   // -> { kind: "ok", data } | { kind: "notfound" } | { kind: "unavailable" }
   async function apiGet(pathAndQuery) {
@@ -155,6 +175,9 @@ export function createPostalService({
     const key = phCityKey(String(cityCode ?? ""));
     if (!key) return null;
     const entry = phTable()[key];
+    // a city with an "exactly these ZIPs" entry is answered from it, without asking the API
+    const exactZips = exact()[key];
+    if (exactZips) return { city: entry?.n[0] ?? String(cityCode), zips: [...exactZips], source: "override" };
     const viaApi = await cached(`city:${key}`, async () => {
       // find one barangay of the city to learn the city's four-character code, then list the city's barangays
       const candidates = key === "133900" ? ["133901001", "133901002"] : [`${key}001`, `${key}002`, `${key}003`];
@@ -194,6 +217,14 @@ export function createPostalService({
       return { status: "invalid", message: "The city doesn't match the one selected. Please choose it from the list again." };
     }
     const label = entry ? entry.n[0] : String(city || "this city");
+
+    // the city's ZIPs are exactly the ones listed in ph-postal-only.json: nothing the API or the table says can add to them
+    const exactZips = exact()[key];
+    if (exactZips) {
+      return exactZips.includes(zip)
+        ? { status: "ok", place: label, source: "override" }
+        : mismatch(label, zip, { belongsTo: [], source: "override", codes: { city: label, zips: exactZips } });
+    }
 
     if ((handMade()[key] ?? []).includes(zip)) return { status: "ok", place: label, source: "extra" };
 
