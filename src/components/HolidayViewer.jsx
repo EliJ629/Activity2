@@ -167,11 +167,10 @@ export function HolidayViewer() {
 
           <p className="holidays__source">
             Source: the government's proclamations (Official Gazette){state.proclamation ? `: ${state.proclamation}` : ""}. Every nationwide holiday
-            declared for {year} is listed, with the regional Muslim holidays where they are shown; special working days (not a day off) and local
-            holidays are not. Time zone: Asia/Manila.
+            declared for {year} is listed; special working days (not a day off) and local holidays are not. Time zone: Asia/Manila.
           </p>
         </>
       )}
     </section>
   );
-}
+} 

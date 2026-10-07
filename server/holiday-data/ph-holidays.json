@@ -1,5 +1,5 @@
 {
- "_about": "Philippine nationwide holidays as DECLARED by the government, per year: the regular holidays, special (non-working) days and additional special (non-working) days of each year's proclamation, with the later proclamations that moved or added days (Eid'l Fitr, Eid'l Adha, elections, bridge days) already applied; a 'note' says where a day was moved from. Also listed, as 'islamic', are the regional Muslim legal holidays (PD 1083) the product owner asked for: Amun Jadid and Maulidin Nabi 2020, Lailatul Isra Wal Mi'raj 2023. These are observed in the Muslim provinces and cities, not nationwide, and the other years' regional Muslim holidays are not listed yet. Special WORKING days (e.g. the EDSA anniversary on Feb 25 in 2022 and 2025-2027) are working days and are not listed. Local holidays of single cities or provinces are not listed. Eid'l Fitr and Eid'l Adha of a year whose proclamation has not been issued are listed as 'pending' (2027), not given a guessed date. All Souls' Day (Nov 2) is listed in the years it was declared (2020, 2021, 2023, 2024, 2026, 2027); in 2022 and 2025 it was not. Sources: Official Gazette of the Philippines (officialgazette.gov.ph/nationwide-holidays/{year}), Malacanang / PCO and PNA releases, the proclamation texts (Supreme Court E-Library, Lawphil). To correct or extend a year, edit its entry here: [date, name, type, optional note] with type regular | special | islamic.",
+ "_about": "Philippine nationwide holidays as DECLARED by the government, per year: the regular holidays, special (non-working) days and additional special (non-working) days of each year's proclamation, with the later proclamations that moved, added or removed days (Eid'l Fitr, Eid'l Adha, elections, bridge days) already applied; a 'note' says where a day was moved from. Special WORKING days are working days and are not listed: the EDSA anniversary on Feb 25 (2022, 2025-2027), and November 2, December 24 and December 31 of 2021 (Proclamation No. 1107) and of 2022 (Proclamation No. 1236). Local holidays of single cities or provinces and the regional Muslim holidays under PD 1083 (Amun Jadid, Maulidin Nabi, Lailatul Isra Wal Mi'raj) are not listed. Eid'l Fitr and Eid'l Adha of a year whose proclamation has not been issued are listed as 'pending' (2027), not given a guessed date. All Souls' Day (Nov 2) is listed in 2020, 2023, 2024, 2026 and 2027, where it was declared, and in 2025 at the product owner's request (Proclamation No. 727 names only October 31 and November 1); in 2021 and 2022 it was a special working day. Sources: Official Gazette of the Philippines (officialgazette.gov.ph/nationwide-holidays/{year}), Malacanang / PCO and PNA releases, the proclamation texts (Supreme Court E-Library, Lawphil). To correct or extend a year, edit its entry here: [date, name, type, optional note] with type regular | special | islamic.",
  "years": {
   "2020": {
    "proclamation": "Proclamation No. 845, s. 2019 (Eid'l Fitr and Eid'l Adha by separate proclamations)",
@@ -63,12 +63,6 @@
      "Regular holiday, declared nationwide by separate proclamation."
     ],
     [
-     "2020-08-20",
-     "Amun Jadid (Islamic New Year)",
-     "islamic",
-     "Muslim legal holiday (PD 1083). Observed in the Muslim provinces and cities and by Muslim government employees, declared by the NCMF; not a nationwide holiday."
-    ],
-    [
      "2020-08-21",
      "Ninoy Aquino Day",
      "special"
@@ -77,12 +71,6 @@
      "2020-08-31",
      "National Heroes Day",
      "regular"
-    ],
-    [
-     "2020-10-29",
-     "Maulidin Nabi (Birthday of the Prophet Muhammad)",
-     "islamic",
-     "Muslim legal holiday (PD 1083). Observed in the Muslim provinces and cities and by Muslim government employees, declared by the NCMF; not a nationwide holiday."
     ],
     [
      "2020-11-01",
@@ -127,7 +115,7 @@
    ]
   },
   "2021": {
-   "proclamation": "Proclamation No. 986, s. 2020 (Eid'l Fitr and Eid'l Adha by separate proclamations)",
+   "proclamation": "Proclamation No. 986, s. 2020, as amended by Proclamation No. 1107 (Eid'l Fitr and Eid'l Adha by separate proclamations)",
    "pending": [],
    "holidays": [
     [
@@ -203,11 +191,6 @@
      "special"
     ],
     [
-     "2021-11-02",
-     "All Souls' Day",
-     "special"
-    ],
-    [
      "2021-11-30",
      "Bonifacio Day",
      "regular"
@@ -215,11 +198,6 @@
     [
      "2021-12-08",
      "Feast of the Immaculate Conception of Mary",
-     "special"
-    ],
-    [
-     "2021-12-24",
-     "Christmas Eve",
      "special"
     ],
     [
@@ -231,11 +209,6 @@
      "2021-12-30",
      "Rizal Day",
      "regular"
-    ],
-    [
-     "2021-12-31",
-     "Last Day of the Year",
-     "special"
     ]
    ]
   },
@@ -361,12 +334,6 @@
      "Additional Special Non-Working Day",
      "special",
      "Added by Proclamation No. 90: New Year's Day fell on a Sunday."
-    ],
-    [
-     "2023-02-18",
-     "Lailatul Isra Wal Mi'raj (Night Journey)",
-     "islamic",
-     "Muslim legal holiday (PD 1083). Observed in the Muslim provinces and cities and by Muslim government employees, declared by the NCMF; not a nationwide holiday. The date follows the Hijri calendar (27 Rajab 1444)."
     ],
     [
      "2023-02-24",
@@ -675,6 +642,12 @@
      "2025-11-01",
      "All Saints' Day",
      "special"
+    ],
+    [
+     "2025-11-02",
+     "All Souls' Day",
+     "special",
+     "A Sunday, observed with All Saints' Day. Proclamation No. 727 itself names October 31 and November 1."
     ],
     [
      "2025-11-30",

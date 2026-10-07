@@ -39,19 +39,19 @@ test("every entry is a real date inside its year, with a name and a known type, 
 });
 
 // Each of these is a date, with the weekday the Official Gazette / the proclamation / the Palace release prints next to it
-const STATED = `2020-01-01 Wed|2020-01-25 Sat|2020-08-20 Thu|2020-10-29 Thu|2020-02-25 Tue|2020-04-09 Thu|2020-05-01 Fri|2020-05-25 Mon|2020-06-12 Fri|2020-07-31 Fri|2020-08-21 Fri|2020-08-31 Mon|2020-11-01 Sun|2020-11-02 Mon|2020-11-30 Mon|2020-12-08 Tue|2020-12-24 Thu|2020-12-25 Fri|2020-12-30 Wed|2020-12-31 Thu
-|2021-01-01 Fri|2021-02-12 Fri|2021-02-25 Thu|2021-04-09 Fri|2021-05-01 Sat|2021-05-13 Thu|2021-06-12 Sat|2021-07-20 Tue|2021-08-21 Sat|2021-08-30 Mon|2021-11-01 Mon|2021-11-02 Tue|2021-11-30 Tue|2021-12-08 Wed|2021-12-24 Fri|2021-12-25 Sat|2021-12-30 Thu|2021-12-31 Fri
+const STATED = `2020-01-01 Wed|2020-01-25 Sat|2020-02-25 Tue|2020-04-09 Thu|2020-05-01 Fri|2020-05-25 Mon|2020-06-12 Fri|2020-07-31 Fri|2020-08-21 Fri|2020-08-31 Mon|2020-11-01 Sun|2020-11-02 Mon|2020-11-30 Mon|2020-12-08 Tue|2020-12-24 Thu|2020-12-25 Fri|2020-12-30 Wed|2020-12-31 Thu
+|2021-01-01 Fri|2021-02-12 Fri|2021-02-25 Thu|2021-04-09 Fri|2021-05-01 Sat|2021-05-13 Thu|2021-06-12 Sat|2021-07-20 Tue|2021-08-21 Sat|2021-08-30 Mon|2021-11-01 Mon|2021-11-30 Tue|2021-12-08 Wed|2021-12-25 Sat|2021-12-30 Thu
 |2022-01-01 Sat|2022-02-01 Tue|2022-02-25 Fri|2022-04-09 Sat|2022-05-01 Sun|2022-05-03 Tue|2022-05-09 Mon|2022-06-12 Sun|2022-07-09 Sat|2022-08-21 Sun|2022-08-29 Mon|2022-10-31 Mon|2022-11-01 Tue|2022-11-30 Wed|2022-12-08 Thu|2022-12-25 Sun|2022-12-30 Fri
-|2023-01-01 Sun|2023-01-02 Mon|2023-02-18 Sat|2023-02-24 Fri|2023-04-10 Mon|2023-04-21 Fri|2023-05-01 Mon|2023-06-12 Mon|2023-06-28 Wed|2023-08-21 Mon|2023-08-28 Mon|2023-10-30 Mon|2023-11-01 Wed|2023-11-02 Thu|2023-11-27 Mon|2023-12-08 Fri|2023-12-25 Mon|2023-12-26 Tue|2023-12-30 Sat|2023-12-31 Sun
+|2023-01-01 Sun|2023-01-02 Mon|2023-02-24 Fri|2023-04-10 Mon|2023-04-21 Fri|2023-05-01 Mon|2023-06-12 Mon|2023-06-28 Wed|2023-08-21 Mon|2023-08-28 Mon|2023-10-30 Mon|2023-11-01 Wed|2023-11-02 Thu|2023-11-27 Mon|2023-12-08 Fri|2023-12-25 Mon|2023-12-26 Tue|2023-12-30 Sat|2023-12-31 Sun
 |2024-01-01 Mon|2024-02-09 Fri|2024-02-10 Sat|2024-04-09 Tue|2024-04-10 Wed|2024-05-01 Wed|2024-06-12 Wed|2024-06-17 Mon|2024-08-23 Fri|2024-08-26 Mon|2024-11-01 Fri|2024-11-02 Sat|2024-11-30 Sat|2024-12-08 Sun|2024-12-24 Tue|2024-12-25 Wed|2024-12-30 Mon|2024-12-31 Tue
-|2025-01-01 Wed|2025-01-29 Wed|2025-04-01 Tue|2025-04-09 Wed|2025-05-01 Thu|2025-05-12 Mon|2025-06-06 Fri|2025-06-12 Thu|2025-07-27 Sun|2025-08-21 Thu|2025-08-25 Mon|2025-10-31 Fri|2025-11-01 Sat|2025-11-30 Sun|2025-12-08 Mon|2025-12-24 Wed|2025-12-25 Thu|2025-12-30 Tue|2025-12-31 Wed
+|2025-01-01 Wed|2025-01-29 Wed|2025-04-01 Tue|2025-04-09 Wed|2025-05-01 Thu|2025-05-12 Mon|2025-06-06 Fri|2025-06-12 Thu|2025-07-27 Sun|2025-08-21 Thu|2025-08-25 Mon|2025-10-31 Fri|2025-11-01 Sat|2025-11-02 Sun|2025-11-30 Sun|2025-12-08 Mon|2025-12-24 Wed|2025-12-25 Thu|2025-12-30 Tue|2025-12-31 Wed
 |2026-01-01 Thu|2026-02-17 Tue|2026-03-20 Fri|2026-04-09 Thu|2026-05-01 Fri|2026-05-27 Wed|2026-06-12 Fri|2026-08-21 Fri|2026-08-31 Mon|2026-11-01 Sun|2026-11-02 Mon|2026-11-30 Mon|2026-12-08 Tue|2026-12-24 Thu|2026-12-25 Fri|2026-12-30 Wed|2026-12-31 Thu
 |2027-01-01 Fri|2027-02-06 Sat|2027-04-09 Fri|2027-05-01 Sat|2027-06-12 Sat|2027-08-21 Sat|2027-08-30 Mon|2027-11-01 Mon|2027-11-02 Tue|2027-11-30 Tue|2027-12-08 Wed|2027-12-24 Fri|2027-12-25 Sat|2027-12-30 Thu|2027-12-31 Fri`
   .split("|").map((s) => s.trim().split(/\s+/));
 
-test("every date the government printed with a weekday (and the Muslim holidays) is in the file, on that weekday (catches any typo)", () => {
+test("every date the government printed with a weekday is in the file, on that weekday (catches any typo)", () => {
   const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  assert.equal(STATED.length, 144);
+  assert.equal(STATED.length, 139);
   for (const [date, wd] of STATED) {
     const y = Number(date.slice(0, 4));
     assert.ok(has(y, date), `${date} should be a holiday`);
@@ -83,21 +83,16 @@ test("the holidays fixed by law are on their dates, except where the government 
   }
 });
 
-test("Regular holidays are exactly the ten fixed by law; the Islamic holidays are the two national Eids plus the regional Muslim ones listed", () => {
-  const NATIONAL = ["Eid'l Fitr (Feast of Ramadhan)", "Eid'l Adha (Feast of Sacrifice)"];
+test("Regular holidays are exactly the ten fixed by law; the Islamic holidays are Eid'l Fitr and Eid'l Adha", () => {
+  const EIDS = ["Eid'l Fitr (Feast of Ramadhan)", "Eid'l Adha (Feast of Sacrifice)"];
   for (const y of YEARS) {
     assert.deepEqual(names(y, "regular").sort(), ["Araw ng Kagitingan", "Bonifacio Day", "Christmas Day", "Good Friday", "Independence Day", "Labor Day", "Maundy Thursday", "National Heroes Day", "New Year's Day", "Rizal Day"], `${y}`);
     // 2027's Eid proclamations have not been issued yet, so that year has none in the file: they are pending, with no date
-    const eids = all(y).filter((h) => h.type === "islamic" && NATIONAL.includes(h.name)).sort((a, b) => a.date.localeCompare(b.date)).map((h) => h.name);
-    assert.deepEqual(eids, y === 2027 ? [] : NATIONAL, `${y} national Eids`);
+    const islamic = all(y).filter((h) => h.type === "islamic").sort((a, b) => a.date.localeCompare(b.date)).map((h) => h.name);
+    assert.deepEqual(islamic, y === 2027 ? [] : EIDS, `${y} Islamic holidays`);
   }
   assert.deepEqual(data[2027].pending, ["fitr", "adha"]);
   for (const y of YEARS.slice(0, 7)) assert.deepEqual(data[y].pending, [], `${y} has no pending Eid`);
-  // the regional Muslim legal holidays (PD 1083) that were added: 2020 and 2023 only
-  const regional = (y) => all(y).filter((h) => h.type === "islamic" && !NATIONAL.includes(h.name)).map((h) => `${h.date} ${h.name}`);
-  assert.deepEqual(regional(2020), ["2020-08-20 Amun Jadid (Islamic New Year)", "2020-10-29 Maulidin Nabi (Birthday of the Prophet Muhammad)"]);
-  assert.deepEqual(regional(2023), ["2023-02-18 Lailatul Isra Wal Mi'raj (Night Journey)"]);
-  for (const y of [2021, 2022, 2024, 2025, 2026, 2027]) assert.deepEqual(regional(y), [], `${y}`);
 });
 
 test("2026: All Souls' Day is a day off, and the EDSA anniversary (a special WORKING day) is not listed", () => {
@@ -161,9 +156,25 @@ test("a year with nothing pending reports no pending Islamic holidays", async ()
   for (const y of YEARS.slice(0, 7)) assert.deepEqual((await createHolidayService().forYear(y)).pending, [], String(y));
 });
 
-test("All Souls' Day (November 2) is listed in the years it was declared, and not in 2022 and 2025", async () => {
-  for (const y of [2020, 2021, 2023, 2024, 2026, 2027]) assert.ok(has(y, `${y}-11-02`, "All Souls' Day"), `${y}`);
-  for (const y of [2022, 2025]) assert.ok(!all(y).some((h) => h.date === `${y}-11-02`), `${y} had no declared day off on November 2`);
+test("All Souls' Day (November 2) is listed in 2020, 2023, 2024, 2025, 2026 and 2027, and not in 2021 and 2022 (special working days)", async () => {
+  for (const y of [2020, 2023, 2024, 2025, 2026, 2027]) assert.ok(has(y, `${y}-11-02`, "All Souls' Day"), `${y}`);
+  for (const y of [2021, 2022]) assert.ok(!all(y).some((h) => h.date === `${y}-11-02`), `${y}: November 2 was a special working day`);
+  const sunday = all(2025).find((h) => h.date === "2025-11-02");
+  assert.equal(sunday.type, "special");
+  assert.match(sunday.note, /Sunday.*Proclamation No\. 727 itself names October 31 and November 1/);       // 2025 is listed, and says what it is
+});
+
+test("2021: Proclamation No. 1107 made November 2, December 24 and December 31 special WORKING days, so they are not listed (and neither are they in 2022)", async () => {
+  for (const y of [2021, 2022]) {
+    for (const md of ["11-02", "12-24", "12-31"]) assert.ok(!all(y).some((h) => h.date === `${y}-${md}`), `${y}-${md} is a working day`);
+  }
+  assert.match(data[2021].proclamation, /986.*amended by Proclamation No\. 1107/);
+  assert.equal(all(2021).length, 18);
+  assert.ok(has(2021, "2021-11-01", "All Saints' Day") && has(2021, "2021-12-08") && has(2021, "2021-12-25", "Christmas Day") && has(2021, "2021-12-30", "Rizal Day"));
+  // the years that DO list them
+  const years = (name) => YEARS.filter((y) => all(y).some((h) => h.name === name));
+  assert.deepEqual(years("Christmas Eve"), [2020, 2024, 2025, 2026, 2027]);
+  assert.deepEqual(years("Last Day of the Year"), [2020, 2023, 2024, 2025, 2026, 2027]);
 });
 
 test("each day the government moved says where it was first set", async () => {
@@ -176,14 +187,6 @@ test("each day the government moved says where it was first set", async () => {
   assert.match(note(2026, "2026-03-20"), /Proclamation No\. 1189/);
   assert.match(note(2026, "2026-05-27"), /Proclamation No\. 1264/);
   assert.match(note(2025, "2025-07-27"), /Proclamation No\. 729/);
-});
-
-test("the regional Muslim holidays say they are regional (PD 1083), not nationwide", async () => {
-  for (const [y, date] of [[2020, "2020-08-20"], [2020, "2020-10-29"], [2023, "2023-02-18"]]) {
-    const h = all(y).find((x) => x.date === date);
-    assert.equal(h.type, "islamic", date);
-    assert.match(h.note, /PD 1083.*not a nationwide holiday/, date);
-  }
 });
 
 test("the 2024 and 2025 entries use the names asked for: the Chinese New Year bridge day and the INC anniversary", async () => {
@@ -279,8 +282,9 @@ test("the built-in copy carries the notes too", async () => {
     const r = await loadHolidays(2023);
     const araw = r.holidays.find((h) => h.month === 4 && h.day === 10 && h.name === "Araw ng Kagitingan");
     assert.match(araw.note, /Moved from April 9 \(Sunday\) by Proclamation No\. 90/);
-    const isra = r.holidays.find((h) => h.month === 2 && h.day === 18);
-    assert.equal(isra.type, "Islamic");
-    assert.match(isra.note, /PD 1083/);
+    const r25 = await loadHolidays(2025);
+    const souls = r25.holidays.find((h) => h.month === 11 && h.day === 2);
+    assert.equal(souls.name, "All Souls' Day");
+    assert.match(souls.note, /Proclamation No\. 727/);
   });
 });

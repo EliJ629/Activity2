@@ -791,22 +791,27 @@ test("GET /api/holidays: 2027's Eid'l Fitr and Eid'l Adha are pending, with no g
   await s.close();
 });
 
-test("GET /api/holidays: moved days carry a note, and the regional Muslim holidays are listed as Islamic", async () => {
+test("GET /api/holidays: moved days carry a note, and the years are as proclaimed (2020, 2021, 2023, 2025)", async () => {
   const s = await startServer();
   const c = client(s.base);
   const y23 = (await c.get("/api/holidays?year=2023")).data.holidays;
   assert.match(y23.find((h) => h.date === "2023-04-10").note, /Moved from April 9 \(Sunday\) by Proclamation No\. 90/);
   assert.match(y23.find((h) => h.date === "2023-02-24").note, /Moved from February 25/);
-  assert.equal(y23.find((h) => h.date === "2023-02-18").type, "islamic");
+  assert.ok(!y23.some((h) => h.date.startsWith("2023-02-") && h.type !== "special"));                  // February 2023: only the EDSA anniversary
   const y20 = (await c.get("/api/holidays?year=2020")).data.holidays;
-  assert.deepEqual(y20.filter((h) => h.type === "islamic").map((h) => h.date), ["2020-05-25", "2020-07-31", "2020-08-20", "2020-10-29"]);
-  assert.ok(y20.find((h) => h.date === "2020-08-20").note.includes("PD 1083"));
-  assert.ok(y20.find((h) => h.date === "2020-08-21" && h.name === "Ninoy Aquino Day"));                // August 2020: Ninoy Aquino Day is the special day...
-  assert.ok(y20.find((h) => h.date === "2020-08-31" && h.name === "National Heroes Day"));             // ...and National Heroes Day (Aug 31) is a regular holiday
-  assert.equal(y20.filter((h) => h.date.startsWith("2020-10-")).length, 1);                              // October 2020: only the Muslim holiday, nothing nationwide
+  assert.deepEqual(y20.filter((h) => h.type === "islamic").map((h) => h.date), ["2020-05-25", "2020-07-31"]);     // the two national Eids only
+  assert.ok(y20.find((h) => h.date === "2020-08-21" && h.name === "Ninoy Aquino Day"));
+  assert.ok(y20.find((h) => h.date === "2020-08-31" && h.name === "National Heroes Day"));
+  assert.ok(!y20.some((h) => h.date === "2020-08-20"));                                                            // no Amun Jadid
+  assert.equal(y20.filter((h) => h.date.startsWith("2020-10-")).length, 0);                                        // October 2020: nothing
+  const y21 = (await c.get("/api/holidays?year=2021")).data;
+  assert.equal(y21.holidays.length, 18);
+  for (const date of ["2021-11-02", "2021-12-24", "2021-12-31"]) assert.ok(!y21.holidays.some((h) => h.date === date), `${date} is a special working day (Proclamation No. 1107)`);
+  assert.match(y21.proclamation, /1107/);
+  const y25 = (await c.get("/api/holidays?year=2025")).data.holidays;
+  assert.equal(y25.find((h) => h.date === "2025-11-02").name, "All Souls' Day");
   await s.close();
 });
-
 test("the browser may call only the address and DNS services directly; holidays and ZIP codes go through this server", async () => {
   const s = await startServer();
   const csp = (await fetch(s.base + "/api/csrf")).headers.get("content-security-policy");
