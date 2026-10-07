@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizeCity } from "../server/postal.js";
+import { normalizeCity, _testing } from "../server/postal.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const URL_1 = "https://raw.githubusercontent.com/0xC0000094/unified-zip-code/main/data/unified-zip-codes.csv";
@@ -60,6 +60,18 @@ for (const e of JSON.parse(jsonText).postal_codes) {
   if (!known.zips.has(e.zip)) added++;
   known.zips.add(e.zip);
 }
+
+// Cities whose ZIP list is exactly the one given (Naic, Cavite: 4110 only; the open data also lists 4135 for it). They come from the
+// list built into server/postal.js and from server/postal-data/ph-postal-only.json, so a rebuild keeps the corrections.
+const only = { ..._testing.BUILT_IN_ONLY };
+try {
+  for (const [key, zips] of Object.entries(JSON.parse(fs.readFileSync(path.join(ROOT, "server/postal-data/ph-postal-only.json"), "utf8")))) {
+    if (!key.startsWith("_") && Array.isArray(zips) && zips.length) only[key] = zips.filter((z) => /^\d{4}$/.test(z));
+  }
+} catch (err) {
+  if (err.code !== "ENOENT") throw err;
+}
+for (const [key, zips] of Object.entries(only)) if (cities.has(key)) cities.get(key).zips = new Set(zips);
 
 const out = {
   _meta: {

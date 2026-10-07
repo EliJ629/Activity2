@@ -213,3 +213,18 @@ test("other cities are not affected by that file", async () => {
   assert.ok(cal.zips.includes("1400") && cal.zips.length > 1);
   assert.equal((await ask(svc, "1400")).status, "ok");
 });
+
+test("Naic's 4110-only rule is built into postal.js, so replacing that one file is enough", () => {
+  assert.deepEqual(_testing.BUILT_IN_ONLY, { "042115": ["4110"] });
+});
+
+test("the bundled table itself no longer lists 4135 for Naic, and agrees with every 'exactly these ZIPs' city", () => {
+  const table = JSON.parse(fs.readFileSync(new URL("../server/postal-data/ph-postal.json", import.meta.url), "utf8")).cities;
+  assert.deepEqual(table["042115"], { n: ["Naic"], z: ["4110"] });
+  assert.ok(!JSON.stringify(table).includes('"4135"'), "4135 is not in the data at all");
+  const only = { ..._testing.BUILT_IN_ONLY };
+  for (const [key, zips] of Object.entries(JSON.parse(fs.readFileSync(new URL("../server/postal-data/ph-postal-only.json", import.meta.url), "utf8")))) {
+    if (!key.startsWith("_")) only[key] = zips;
+  }
+  for (const [key, zips] of Object.entries(only)) assert.deepEqual(table[key].z, zips, `table entry ${key}`);
+});

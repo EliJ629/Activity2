@@ -1,8 +1,9 @@
 // Postal-code check for the Philippines: does this ZIP really belong to the city the person picked?
 //
 // Where the answer comes from, in this order:
-//   0. server/postal-data/ph-postal-only.json - a city listed there has EXACTLY those ZIPs (Naic, Cavite: 4110 only). It
-//      replaces what the API and the table say, so a ZIP the data wrongly gives a city can be taken away.
+//   0. A city with an "exactly these ZIPs" entry has EXACTLY those ZIPs (Naic, Cavite: 4110 only). It replaces what the API and
+//      the table say, so a ZIP the data wrongly gives a city can be taken away. Naic is built into this file (BUILT_IN_ONLY below),
+//      so this file alone is enough; server/postal-data/ph-postal-only.json holds more such cities, or can restate these.
 //   1. server/postal-data/ph-postal-extra.json - a ZIP you added there by hand is always accepted for that city.
 //   2. The Unified ZIP Code API (https://zip.jamesventura.dev - public, no key, 60 requests a minute per address,
 //      source: github.com/0xC0000094/unified-zip-code). Its `lookup?postal=` call returns every barangay that uses
@@ -57,13 +58,18 @@ const sameCity = (a, b) => {
   return Boolean(x) && Boolean(y) && (x === y || (Math.min(x.length, y.length) >= 6 && editDistance(x, y) <= 2));
 };
 
+// Cities whose ZIP list is exactly the one given, built in so that replacing this one file is enough:
+//   042115  Naic, Cavite - 4110 is its only ZIP (the open data also gave it 4135, which does not belong to Naic)
+// More such cities go in server/postal-data/ph-postal-only.json (same format: 6-digit city key -> its 4-digit ZIPs).
+const BUILT_IN_ONLY = { "042115": ["4110"] };
+
 /* ---------- the bundled table (fallback + city names) and the hand-made additions ---------- */
 let loaded = null;
 function readTables() {
   if (loaded) return loaded;
   const base = JSON.parse(fs.readFileSync(path.join(HERE, "postal-data", "ph-postal.json"), "utf8")).cities;
   let extras = {};
-  let only = {};
+  let only = { ...BUILT_IN_ONLY };
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(HERE, "postal-data", "ph-postal-extra.json"), "utf8"));
     for (const [key, zips] of Object.entries(raw)) {
@@ -253,4 +259,4 @@ export function createPostalService({
   return { check, zipsFor, _internals: { cache, isDown: () => now() < downUntil } };
 }
 
-export const _testing = { sameCity, editDistance };
+export const _testing = { sameCity, editDistance, BUILT_IN_ONLY };
