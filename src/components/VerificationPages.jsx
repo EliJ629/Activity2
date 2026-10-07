@@ -116,7 +116,7 @@ export function VerifyEmailPage() {
 
 /* ---------- mobile OTP ---------- */
 export function VerifyMobilePage() {
-  const { config } = useApp();
+  const { config, refresh } = useApp();
   const [phase, setPhase] = useState("loading"); // loading | noSession | ready
   const [info, setInfo] = useState({ sentTo: "", active: false, attemptsLeft: config.otp.maxAttempts });
   const [code, setCode] = useState("");
@@ -191,6 +191,7 @@ export function VerifyMobilePage() {
     setBusy(true);
     try {
       await api("/otp/verify", { method: "POST", body: { code } });
+      await refresh(); // the server just ended any sign-in left in this browser: forget it here too before showing the login form
       navigate("/login?verified=1", { replace: true });
     } catch (err) {
       const c = err.body?.code;

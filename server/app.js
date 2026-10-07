@@ -245,8 +245,18 @@ async function sendOtp(user) {
 
   /* ---------- sessions ---------- */
   const SID = "sid";
+  // Ends the sign-in this browser is holding, if any: its session is deleted and its cookie cleared. Registering a new account and
+  // finishing its verification do this, because the person at the keyboard is no longer whoever signed in here before (a session
+  // lasts hours and survives closing the tab, so without this the new person would find the PREVIOUS person's dashboard).
+  async function endBrowserSession(req, res) {
+    const raw = req.cookies[SID];
+    if (raw) await db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(raw));
+    res.clearCookie(SID, cookieOptions(req));
+  }
   async function createSession(req, res, user) {
     await db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(nowIso());
+    // signing in replaces whoever this browser was signed in as: that person's session ends now, not hours later
+    if (req.cookies[SID]) await db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(req.cookies[SID]));
     const raw = newToken();
     await db.prepare("INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(crypto.randomUUID(), user.id, sha256(raw), nowIso(Date.now() + config.sessionTtlMs), nowIso(), req.ip, String(req.get("user-agent") || "").slice(0, 255));
@@ -491,6 +501,7 @@ async function sendOtp(user) {
 
     let emailSent = true;
     try { await sendVerificationEmail(await q.userById.get(id)); } catch (err) { emailSent = false; console.error("Could not send verification email:", err.message); }
+    await endBrowserSession(req, res); // a new account is being created in this browser: whoever was signed in here is signed out
     res.status(201).json({ ok: true, email: payload.email, emailSent });
   });
 
@@ -598,6 +609,7 @@ async function sendOtp(user) {
     if (!(await markUsed(last.id)).changes) return res.status(400).json({ code: "OTP_NONE", message: "There is no active code. Request a new one." });
     await db.prepare("UPDATE users SET mobile_verified = TRUE, updated_at = ? WHERE id = ?").run(nowIso(), user.id);
     res.clearCookie(ONB, cookieOptions(req));
+    await endBrowserSession(req, res); // the new account is complete: nobody else's sign-in may be left behind to greet them
     res.json({ ok: true });
   });
 
@@ -721,9 +733,7 @@ async function sendOtp(user) {
   });
 
   app.post("/api/logout", async (req, res) => {
-    const raw = req.cookies[SID];
-    if (raw) await db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(raw));
-    res.clearCookie(SID, cookieOptions(req));
+    await endBrowserSession(req, res);
     res.json({ ok: true });
   });
 

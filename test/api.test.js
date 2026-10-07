@@ -859,3 +859,65 @@ test("Naic, Cavite has the single ZIP 4110: the ZIP dropdown, the live check and
   assert.equal((await c.post("/api/register", naic("4110"))).status, 201);
   await s.close();
 });
+
+/* ---------- a sign-in left behind in a browser must not greet the next person who registers there ---------- */
+
+test("registering and verifying a new account in a browser still signed in as someone else signs that person out", async () => {
+  const s = await startServer();
+  const alice = await registerAndVerify(s, { email: "alice@gmail.com", firstName: "Alice", mobile: "917 111 0001" });
+  assert.equal((await alice.c.post("/api/login", { email: "alice@gmail.com", password: alice.payload.password })).status, 200);
+  const aliceId = (await alice.c.get("/api/me")).data.user.id;               // Alice signs in and walks away without logging out
+
+  const bee = goodPayload({ email: "bee@gmail.com", firstName: "Bee", mobile: "917 222 0002" });
+  assert.equal((await alice.c.post("/api/register", bee)).status, 201);       // Bee registers in the SAME browser (same cookies)
+  assert.equal((await alice.c.get("/api/me")).status, 401, "Alice is signed out as soon as the new account is created");
+
+  const link = s.outbox.list().find((m) => m.type === "email" && m.to === bee.email).body.match(/https?:\/\/\S+/)[0];
+  assert.equal((await alice.c.post("/api/verify-email", { token: new URL(link).searchParams.get("token") })).status, 200);
+  assert.equal((await alice.c.post("/api/otp/verify", { code: lastOtp(s.outbox) })).status, 200);
+  assert.equal((await alice.c.get("/api/me")).status, 401, "after verifying, the browser is signed in as nobody, not as Alice");
+
+  const { rows } = await s.db.query("SELECT count(*)::int AS n FROM sessions WHERE user_id = $1", [aliceId]);
+  assert.equal(rows[0].n, 0, "Alice's session row is deleted, not just forgotten by the browser");
+
+  // Bee signs in on this browser and sees Bee
+  assert.equal((await alice.c.post("/api/login", { email: bee.email, password: bee.password })).status, 200);
+  assert.equal((await alice.c.get("/api/me")).data.user.firstName, "Bee");
+  await s.close();
+});
+
+test("a registration that is refused does not sign anybody out", async () => {
+  const s = await startServer();
+  const alice = await registerAndVerify(s, { email: "alice@gmail.com", mobile: "917 111 0001" });
+  await alice.c.post("/api/login", { email: "alice@gmail.com", password: alice.payload.password });
+  const bad = await alice.c.post("/api/register", goodPayload({ email: "not-an-email", mobile: "917 222 0002" }));
+  assert.equal(bad.status, 422);
+  assert.equal((await alice.c.get("/api/me")).status, 200, "Alice is still signed in");
+  await s.close();
+});
+
+test("a new account created in one browser does not sign out the same person on another device", async () => {
+  const s = await startServer();
+  const alice = await registerAndVerify(s, { email: "alice@gmail.com", mobile: "917 111 0001" });
+  await alice.c.post("/api/login", { email: "alice@gmail.com", password: alice.payload.password });       // Alice, browser 1
+  const phone = client(s.base);
+  assert.equal((await phone.post("/api/login", { email: "alice@gmail.com", password: alice.payload.password })).status, 200);   // Alice, browser 2
+  assert.equal((await alice.c.post("/api/register", goodPayload({ email: "bee@gmail.com", mobile: "917 222 0002" }))).status, 201);   // Bee registers in browser 1
+  assert.equal((await alice.c.get("/api/me")).status, 401);
+  assert.equal((await phone.get("/api/me")).status, 200, "Alice's other browser is not touched");
+  await s.close();
+});
+
+test("signing in as somebody else replaces this browser's old session instead of leaving it behind", async () => {
+  const s = await startServer();
+  const alice = await registerAndVerify(s, { email: "alice@gmail.com", mobile: "917 111 0001" });
+  const bee = await registerAndVerify(s, { email: "bee@gmail.com", firstName: "Bee", mobile: "917 222 0002" });
+  const c = client(s.base);
+  await c.post("/api/login", { email: "alice@gmail.com", password: alice.payload.password });
+  const aliceId = (await c.get("/api/me")).data.user.id;
+  assert.equal((await c.post("/api/login", { email: "bee@gmail.com", password: bee.payload.password })).status, 200);
+  assert.equal((await c.get("/api/me")).data.user.firstName, "Bee");
+  const { rows } = await s.db.query("SELECT count(*)::int AS n FROM sessions WHERE user_id = $1", [aliceId]);
+  assert.equal(rows[0].n, 0, "Alice's old session is gone");
+  await s.close();
+});

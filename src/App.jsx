@@ -40,7 +40,8 @@ function NotFound() {
 
 function Routes() {
   const { user, loading } = useApp();
-  const path = usePath().split("?")[0].replace(/\/+$/, "") || "/";
+  const [rawPath, query = ""] = usePath().split("?");
+  const path = rawPath.replace(/\/+$/, "") || "/";
 
   if (loading) return <p className="splash" role="status">Loading...</p>;
   if (path === "/") return <Redirect to={user ? "/dashboard" : "/login"} />;
@@ -53,7 +54,10 @@ function Routes() {
 
   const Page = PUBLIC_ROUTES[path];
   if (Page) {
-    if (user && GUEST_ONLY.has(path)) return <Redirect to="/dashboard" />;
+    // Right after someone finishes verifying a NEW account (/login?verified=1) the login form must show, even if the browser still
+    // holds somebody else's sign-in: sending them to the dashboard would show them that other person's account.
+    const justVerified = path === "/login" && new URLSearchParams(query).get("verified") === "1";
+    if (user && GUEST_ONLY.has(path) && !justVerified) return <Redirect to="/dashboard" />;
     return <main className={`app${path === "/register" ? "" : " app--narrow"}`}><Page /></main>;
   }
   return <main className="app app--narrow"><NotFound /></main>;
